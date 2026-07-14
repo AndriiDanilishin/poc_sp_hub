@@ -1,0 +1,28 @@
+{
+  "generationParameters": {
+    "generationDate": "Tue Jul 14 2026 21:42:02 GMT+0000 (Coordinated Universal Time)",
+    "generatorPlatform": "SAP Business Application Studio",
+    "serviceType": "Local CAP",
+    "metadataFilename": "",
+    "serviceUrl": "http://localhost:4004/api/documents/",
+    "appName": "document-manager",
+    "appTitle": "Document & Chat Hub",
+    "appDescription": "Document extraction manager with AI assistant",
+    "appNamespace": "poc.sp.hub",
+    "ui5Theme": "sap_horizon",
+    "ui5Version": "1.150.0",
+    "enableEslint": true,
+    "enableTypeScript": false,
+    "showMockDataInfo": false,
+    "generatorVersion": "1.28.0",
+    "template": "List Report Page V4",
+    "generatorName": "SAP Fiori Application Generator",
+    "entityRelatedConfig": [
+      {
+        "type": "Main Entity",
+        "value": "Documents"
+      }
+    ],
+    "launchText": "To launch the generated app, start your CAP project:  and navigate to the following location in your browser:\n\nhttp://localhost:4004/document-manager/webapp/index.html"
+  }
+}
