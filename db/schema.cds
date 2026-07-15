@@ -38,3 +38,6 @@ entity ChatMessages : cuid {
     timestamp : Timestamp                   @cds.on.insert: $now;
     sources   : LargeString;
 }
+
+
+

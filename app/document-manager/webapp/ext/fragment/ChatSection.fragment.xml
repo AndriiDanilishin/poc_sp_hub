@@ -1,0 +1,5 @@
+<core:FragmentDefinition xmlns:core="sap.ui.core" xmlns="sap.m" xmlns:macros="sap.fe.macros">
+	<VBox id="VBox" core:require="{ handler: 'poc/sp/hub/documentmanager/ext/fragment/ChatSection'}">
+		<Button id="Button" text="ChatSection2" press="handler.onPress" />
+	</VBox>
+</core:FragmentDefinition>
