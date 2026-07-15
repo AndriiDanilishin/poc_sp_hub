@@ -14,7 +14,7 @@ module.exports = class DocumentService extends cds.ApplicationService {
 
       // 2. Delete all messages from those sessions
       if (sessions.length > 0) {
-        const sessionIds = sessions.map(s => s.ID);
+        const sessionIds = sessions.map((s) => s.ID);
         await DELETE.from(ChatMessages).where({ session_ID: { in: sessionIds } });
       }
 
@@ -31,7 +31,8 @@ module.exports = class DocumentService extends cds.ApplicationService {
 
     this.on('getStatus', async (req) => {
       const { documentId } = req.data;
-      const doc = await SELECT.one.from(Documents)
+      const doc = await SELECT.one
+        .from(Documents)
         .where({ ID: documentId })
         .columns('status', 'chunkCount', 'errorMsg');
       return doc;
@@ -48,22 +49,24 @@ module.exports = class DocumentService extends cds.ApplicationService {
       // Get message count from those sessions
       let messageCount = 0;
       if (sessions.length > 0) {
-        const sessionIds = sessions.map(s => s.ID);
-        const msgResult = await SELECT.one.from(ChatMessages)
+        const sessionIds = sessions.map((s) => s.ID);
+        const msgResult = await SELECT.one
+          .from(ChatMessages)
           .where({ session_ID: { in: sessionIds } })
           .columns('count(*) as count');
         messageCount = msgResult?.count || 0;
       }
 
       // Get chunk count
-      const chunkResult = await SELECT.one.from(DocumentChunks)
+      const chunkResult = await SELECT.one
+        .from(DocumentChunks)
         .where({ document_ID: documentId })
         .columns('count(*) as count');
 
       return {
         sessionCount: sessions.length,
         messageCount: messageCount,
-        chunkCount: chunkResult?.count || 0
+        chunkCount: chunkResult?.count || 0,
       };
     });
 

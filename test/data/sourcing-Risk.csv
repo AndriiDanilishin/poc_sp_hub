@@ -1,0 +1,3 @@
+ID;project_ID;description;category;severity;mitigation;aiGenerated
+03000000-0000-4000-8000-000000000001;e1000000-0000-4000-8000-000000000001;Furniture lead time may exceed 8 weeks;Delivery;Medium;Order early and confirm stock availability with supplier;true
+03000000-0000-4000-8000-000000000002;e1000000-0000-4000-8000-000000000001;Budget overrun if scope expands to a third floor;Financial;Low;Cap purchase order at approved 25000 EUR budget;false

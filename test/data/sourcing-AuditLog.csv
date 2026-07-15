@@ -1,0 +1,3 @@
+ID;entityName;entityId;action;actor;aiInvolved;before;after;timestamp
+07000000-0000-4000-8000-000000000001;SourcingProject;e1000000-0000-4000-8000-000000000001;PROMOTE;requester;false;;requirementsCopied=2;2026-07-16T09:05:00+0200
+07000000-0000-4000-8000-000000000002;SourcingProject;e1000000-0000-4000-8000-000000000001;APPROVE;manager;false;status=DRAFT;status=APPROVED;2026-07-16T09:10:00+0200

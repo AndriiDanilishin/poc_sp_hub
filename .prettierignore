@@ -1,0 +1,14 @@
+node_modules/
+target/
+_out/
+gen/
+.gen/
+package-lock.json
+*.sqlite
+
+# Generated/managed by SAP Fiori tooling - reformatting fights the generator
+app/document-manager/
+
+# Editor/tool state, not project source
+.vscode/
+.claude/

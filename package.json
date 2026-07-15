@@ -8,15 +8,42 @@
   },
   "devDependencies": {
     "@cap-js/sqlite": "^2.4",
-    "cds-plugin-ui5": "^0.17.0"
+    "cds-plugin-ui5": "^0.17.0",
+    "eslint": "^10",
+    "prettier": "^3"
   },
   "scripts": {
     "start": "cds-serve",
-    "watch-document-manager": "cds watch --open poc.sp.hub.documentmanager/index.html?sap-ui-xx-viewCache=false --livereload false"
+    "watch-document-manager": "cds watch --open poc.sp.hub.documentmanager/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "private": true,
   "cds": {
     "requires": {
+      "auth": {
+        "kind": "mocked",
+        "users": {
+          "curator": {
+            "roles": [
+              "KnowledgeCurator"
+            ]
+          },
+          "requester": {
+            "roles": [
+              "ProcurementRequester"
+            ]
+          },
+          "manager": {
+            "roles": [
+              "ProcurementRequester",
+              "ProcurementManager"
+            ]
+          }
+        }
+      },
       "[production]": {
         "auth": "xsuaa"
       }
