@@ -40,4 +40,21 @@ entity ChatMessages : cuid {
 }
 
 
+entity SPHeader : cuid {
+    number    : Integer64                 @mandatory;
+    status    : String(20)                  @mandatory;
+    version   : Integer                     @mandatory;
+    createdat : Timestamp                   @cds.on.insert: $now;
+    items     : Composition of many SPItem
+                   on items.SPHeader = $self;
+}
+
+entity SPItem : cuid {
+    SPHeader      : Association to SPHeader     @mandatory;
+    item_number   : Integer64                   @mandatory;
+    item_status   : String(20)                  @mandatory;
+    product_type  : String(40)                  @mandatory;
+    delivery_date : Date;
+}
+
 

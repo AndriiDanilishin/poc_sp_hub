@@ -10,7 +10,7 @@ sap.ui.define([
          * @param oEvent the event object provided by the event provider.
          */
         onPress: function(oEvent) {
-            MessageToast.show("Custom handler invoked Hello Alina.");
+            MessageToast.show("Custom handler invoked Hello Andrii.");
         }
     };
 });

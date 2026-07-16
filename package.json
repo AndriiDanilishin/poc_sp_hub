@@ -12,7 +12,10 @@
   },
   "scripts": {
     "start": "cds-serve",
-    "watch-document-manager": "cds watch --open poc.sp.hub.documentmanager/index.html?sap-ui-xx-viewCache=false --livereload false"
+    "watch-document-manager": "cds watch --open poc.sp.hub.documentmanager/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-project1": "cds watch --open project1/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-sourcing_project": "cds watch --open sourcingproject/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-sp_with_items": "cds watch --open spwithitems/index.html?sap-ui-xx-viewCache=false --livereload false"
   },
   "private": true,
   "cds": {
@@ -26,6 +29,9 @@
     "app/*"
   ],
   "sapux": [
-    "app/document-manager"
+    "app/document-manager",
+    "app/project1",
+    "app/sourcing_project",
+    "app/sp_with_items"
   ]
 }
