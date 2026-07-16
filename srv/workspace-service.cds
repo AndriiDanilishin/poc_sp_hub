@@ -17,7 +17,7 @@ service WorkspaceService @(path: '/api/workspace') {
     // Clear the AI-proposed enrichment on a requirement, leaving it for manual entry.
     action   reject(id: UUID)                           returns WorkspaceRequirements;
 
-    // Re-invoke AI enrichment for a single requirement (Phase 3).
+    // Re-invoke AI enrichment for a single requirement, RAG-grounded (§15).
     action   regenerate(id: UUID)                       returns WorkspaceRequirements;
 
     // Promote accepted requirements of a workspace into a draft Sourcing Project.

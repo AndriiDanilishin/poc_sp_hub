@@ -23,7 +23,7 @@ service SourcingProjectService @(path: '/api/sourcing') {
     @readonly
     entity Suppliers                as projection on db.Supplier;
 
-    // AI drafts title, description, timeline, priority and risks (Phase 4).
+    // AI drafts title, description, timeline, priority and risks, RAG-grounded (§20).
     action   generateDraft(id: UUID) returns SourcingProjects;
 
     // Procurement Manager signs off; DRAFT -> APPROVED. Human-only, no AI.

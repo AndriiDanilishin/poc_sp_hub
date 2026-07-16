@@ -1,4 +1,5 @@
 const cds = require('@sap/cds');
+const embedder = require('./ai/embedder');
 
 // Only these curated categories feed RAG (§15); uploaded source documents do not.
 const CATEGORIES = [
@@ -27,8 +28,8 @@ module.exports = class KnowledgeService extends cds.ApplicationService {
       }
 
       const id = cds.utils.uuid();
-      // Store the curated content now; the embedding is computed later by the
-      // Phase 2 embedder (srv/lib/embedder.js) via reindex.
+      // Store the curated content now; the embedding is computed by reindex
+      // (srv/ai/embedder.js), not on insert, so indexing can be batched/retried.
       await INSERT.into(KnowledgeDocuments).entries({
         ID: id,
         category,
@@ -40,8 +41,9 @@ module.exports = class KnowledgeService extends cds.ApplicationService {
     });
 
     this.on('reindex', async (req) => {
-      // Vectorization needs the embedder (Phase 2, docs/solution-architecture.md §15).
-      return req.reject(501, 'Knowledge re-indexing (embedding) is not implemented yet (Phase 2)');
+      const { onlyMissing } = req.data;
+      const { indexed } = await embedder.reindex({ onlyMissing });
+      return { documentsQueued: indexed };
     });
 
     this.on('listByCategory', async (req) => {

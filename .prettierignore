@@ -6,8 +6,10 @@ gen/
 package-lock.json
 *.sqlite
 
-# Generated/managed by SAP Fiori tooling - reformatting fights the generator
-app/document-manager/
+# Fiori/UI5 apps - generator-managed or hand-authored to match generator style;
+# each has its own ESLint config (@sap-ux/eslint-plugin-fiori-tools), matching
+# the eslint.config.mjs exclusion of app/** at the repo root.
+app/
 
 # Editor/tool state, not project source
 .vscode/

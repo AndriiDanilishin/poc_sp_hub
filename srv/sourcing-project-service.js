@@ -1,8 +1,9 @@
 const cds = require('@sap/cds');
+const { draftSourcingProject } = require('./ai/project-drafting');
 
 module.exports = class SourcingProjectService extends cds.ApplicationService {
   async init() {
-    const { SourcingProjects, Requirements } = this.entities;
+    const { SourcingProjects, Requirements, Risks } = this.entities;
     const AuditLog = cds.entities('sourcing').AuditLog;
 
     const writeAudit = (req, entry) =>
@@ -19,8 +20,58 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
       if (!project) {
         return req.reject(404, `Sourcing Project ${id} not found`);
       }
-      // AI drafting lands in Phase 4 (docs/solution-architecture.md §20).
-      return req.reject(501, 'AI draft generation is not implemented yet (Phase 4)');
+      // Only a DRAFT may be (re)drafted — an approved/submitted project is frozen (§20, §25).
+      if (project.status !== 'DRAFT') {
+        return req.reject(409, `Only DRAFT projects can be drafted (current: ${project.status})`);
+      }
+
+      const requirements = await SELECT.from(Requirements).where({ project_ID: id });
+      if (!requirements.length) {
+        return req.reject(400, 'Cannot generate a draft for a project with no requirements');
+      }
+
+      const draft = await draftSourcingProject(requirements, { workspaceTitle: project.title });
+
+      await UPDATE(SourcingProjects)
+        .set({
+          title: draft.title,
+          description: draft.description,
+          category: draft.category,
+          priority: draft.priority,
+          timelineStart: draft.timeline.start,
+          timelineEnd: draft.timeline.end,
+        })
+        .where({ ID: id });
+
+      // Replace only the AI-authored risks on regenerate; human-added risks are kept (§25).
+      await DELETE.from(Risks).where({ project_ID: id, aiGenerated: true });
+      if (draft.risks.length) {
+        await INSERT.into(Risks).entries(
+          draft.risks.map((r) => ({
+            ID: cds.utils.uuid(),
+            project_ID: id,
+            description: r.description,
+            category: r.category,
+            severity: r.severity,
+            mitigation: r.mitigation,
+            aiGenerated: true,
+          })),
+        );
+      }
+
+      await writeAudit(req, {
+        entityName: 'SourcingProject',
+        entityId: id,
+        action: 'GENERATE_DRAFT',
+        aiInvolved: true,
+        after: JSON.stringify({
+          title: draft.title,
+          priority: draft.priority,
+          risksProposed: draft.risks.length,
+        }),
+      });
+
+      return SELECT.one.from(SourcingProjects).where({ ID: id });
     });
 
     this.on('approve', async (req) => {

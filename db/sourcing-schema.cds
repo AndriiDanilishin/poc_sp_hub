@@ -19,6 +19,12 @@ entity SourceDocument : cuid, managed {
     };
     fileName   : String(255);
     fileType   : String(10);
+    // Raw text content to parse/extract from (email body, CSV/TSV text, structured
+    // REST payload). Binary formats (PDF bytes, .xlsx, images) aren't stored here
+    // yet — their parsers are still Phase-2 stubs (see srv/ai/document-parsers/);
+    // adding binary storage is deferred until that parsing is real (§17, §21 notes
+    // BTP Object Store for attachments as the eventual home for binary content).
+    content    : LargeString;
     status     : String(20) default 'UPLOADED'; // UPLOADED, EXTRACTING, EXTRACTED, FAILED
     errorMsg   : String(1000);
     workspace  : Association to RequirementWorkspace;

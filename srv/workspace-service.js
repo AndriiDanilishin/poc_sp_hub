@@ -1,4 +1,5 @@
 const cds = require('@sap/cds');
+const { enrichRequirement } = require('./ai/enrichment');
 
 // Confidence below this threshold must be human-reviewed before promotion (§19).
 const CONFIDENCE_REVIEW_THRESHOLD = 0.5;
@@ -6,7 +7,7 @@ const CONFIDENCE_REVIEW_THRESHOLD = 0.5;
 module.exports = class WorkspaceService extends cds.ApplicationService {
   async init() {
     const { RequirementWorkspaces, WorkspaceRequirements, RequirementSources } = this.entities;
-    const { SourcingProject, Requirement } = cds.entities('sourcing');
+    const { SourcingProject, Requirement, MaterialGroup, CommodityCode } = cds.entities('sourcing');
     const AuditLog = cds.entities('sourcing').AuditLog;
 
     const writeAudit = (req, entry) =>
@@ -155,8 +156,54 @@ module.exports = class WorkspaceService extends cds.ApplicationService {
       if (!item) {
         return req.reject(404, `Requirement ${id} not found`);
       }
-      // AI-backed enrichment lands in Phase 3 (docs/solution-architecture.md §14, §15).
-      return req.reject(501, 'AI regeneration is not implemented yet (Phase 3)');
+
+      let enrichment;
+      try {
+        enrichment = await enrichRequirement(item);
+      } catch (err) {
+        return req.reject(400, err.message);
+      }
+
+      const topMaterialGroup = enrichment.materialGroups[0];
+      const topCommodity = enrichment.commodityCodes[0];
+
+      // Only assign a recommendation whose code resolves against real master data —
+      // never trust an AI-returned code as a dangling reference (§25).
+      const [resolvedMG, resolvedCC] = await Promise.all([
+        topMaterialGroup?.code
+          ? SELECT.one.from(MaterialGroup).where({ code: topMaterialGroup.code })
+          : null,
+        topCommodity?.code
+          ? SELECT.one.from(CommodityCode).where({ code: topCommodity.code })
+          : null,
+      ]);
+
+      // A fresh AI proposal needs review again, regardless of the prior aiStatus.
+      await UPDATE(WorkspaceRequirements)
+        .set({
+          materialGroup_code: resolvedMG?.code ?? null,
+          commodityCode_code: resolvedCC?.code ?? null,
+          aiStatus: 'PROPOSED',
+        })
+        .where({ ID: id });
+
+      await writeAudit(req, {
+        entityName: 'WorkspaceRequirement',
+        entityId: id,
+        action: 'REGENERATE',
+        aiInvolved: true,
+        before: JSON.stringify({
+          materialGroup_code: item.materialGroup_code,
+          commodityCode_code: item.commodityCode_code,
+        }),
+        after: JSON.stringify({
+          materialGroup: topMaterialGroup,
+          commodityCode: topCommodity,
+          grounding: enrichment.grounding,
+        }),
+      });
+
+      return SELECT.one.from(WorkspaceRequirements).where({ ID: id });
     });
 
     this.on('promoteToSourcingProject', async (req) => {

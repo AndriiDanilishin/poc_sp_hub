@@ -15,6 +15,7 @@
   "scripts": {
     "start": "cds-serve",
     "watch-document-manager": "cds watch --open poc.sp.hub.documentmanager/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-intake-hub": "cds watch --open poc.sp.hub.intakehub/index.html?sap-ui-xx-viewCache=false --livereload false",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -53,6 +54,7 @@
     "app/*"
   ],
   "sapux": [
-    "app/document-manager"
+    "app/document-manager",
+    "app/intake-hub"
   ]
 }
