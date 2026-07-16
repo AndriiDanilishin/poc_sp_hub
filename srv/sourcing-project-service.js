@@ -14,8 +14,15 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
         ...entry,
       });
 
+    // Bound actions carry the target instance's key in req.params (last path segment)
+    // rather than as an action parameter.
+    const boundKey = (req) => {
+      const last = req.params?.[req.params.length - 1];
+      return typeof last === 'object' ? last.ID : last;
+    };
+
     this.on('generateDraft', async (req) => {
-      const { id } = req.data;
+      const id = boundKey(req);
       const project = await SELECT.one.from(SourcingProjects).where({ ID: id });
       if (!project) {
         return req.reject(404, `Sourcing Project ${id} not found`);
@@ -75,7 +82,7 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
     });
 
     this.on('approve', async (req) => {
-      const { id } = req.data;
+      const id = boundKey(req);
       const project = await SELECT.one.from(SourcingProjects).where({ ID: id });
       if (!project) {
         return req.reject(404, `Sourcing Project ${id} not found`);
@@ -106,7 +113,7 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
     });
 
     this.on('submitToS4', async (req) => {
-      const { id } = req.data;
+      const id = boundKey(req);
       const project = await SELECT.one.from(SourcingProjects).where({ ID: id });
       if (!project) {
         return req.reject(404, `Sourcing Project ${id} not found`);
