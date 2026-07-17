@@ -71,10 +71,17 @@ sap.ui.define(
 
             var aFilters = [];
 
-            // Conditions from the associated mdc FilterBar (Go button).
+            // Conditions from the associated mdc FilterBar (Go button). Note:
+            // getConditions() returns {} unless value persistence (p13n "Value"
+            // mode) is enabled, so read the internal conditions — same shape,
+            // typed values — with the public accessor as fallback.
             var oFilterBar = Element.getElementById(oTable.getFilter());
-            if (oFilterBar && oFilterBar.getConditions) {
-                aFilters = aFilters.concat(conditionsToFilters(oFilterBar.getConditions()));
+            if (oFilterBar) {
+                var mConditions =
+                    (oFilterBar.getInternalConditions && oFilterBar.getInternalConditions()) ||
+                    (oFilterBar.getConditions && oFilterBar.getConditions()) ||
+                    {};
+                aFilters = aFilters.concat(conditionsToFilters(mConditions));
             }
 
             // Always scope to the workspace selected in the page header.

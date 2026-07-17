@@ -68,19 +68,33 @@ sap.ui.define(
             onInit: function () {
                 // The "ui" state model is created in Component.init before this view.
                 // Pick a default workspace once the Select has data (prefer OPEN ones).
+                // Careful: on a warm server the items may already be there before we
+                // attach — check first, then listen, and only ever select once.
                 var oSelect = this.byId("workspaceSelect");
                 var that = this;
+                var bDone = false;
+                var fnSelectOnce = function () {
+                    if (bDone || !oSelect.getItems().length) {
+                        return;
+                    }
+                    bDone = true;
+                    that._selectDefaultWorkspace();
+                };
                 var fnAttach = function () {
                     var oBinding = oSelect.getBinding("items");
                     if (!oBinding) {
                         setTimeout(fnAttach, 100);
                         return;
                     }
-                    oBinding.attachEventOnce("dataReceived", function () {
-                        setTimeout(function () {
-                            that._selectDefaultWorkspace();
-                        }, 0);
-                    });
+                    fnSelectOnce();
+                    if (!bDone) {
+                        oBinding.attachEvent("change", function () {
+                            setTimeout(fnSelectOnce, 0);
+                        });
+                        oBinding.attachEvent("dataReceived", function () {
+                            setTimeout(fnSelectOnce, 0);
+                        });
+                    }
                 };
                 fnAttach();
             },
