@@ -1,0 +1,201 @@
+<mvc:View
+    controllerName="poc.sp.hub.requirementworkspace.controller.Workspace"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:core="sap.ui.core"
+    xmlns:f="sap.f"
+    xmlns:mdc="sap.ui.mdc"
+    xmlns:mdct="sap.ui.mdc.table"
+    xmlns:mdcat="sap.ui.mdc.actiontoolbar"
+    displayBlock="true"
+    height="100%">
+    <f:DynamicPage id="page" headerExpanded="true" fitContent="false">
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading>
+                    <Title text="Requirement Workspace" />
+                </f:heading>
+                <f:content>
+                    <Select
+                        id="workspaceSelect"
+                        width="22rem"
+                        forceSelection="false"
+                        change=".onWorkspaceChange"
+                        items="{path: '/RequirementWorkspaces', parameters: {$orderby: 'createdAt desc'}}">
+                        <core:Item key="{ID}" text="{title} ({status})" />
+                    </Select>
+                    <ObjectStatus
+                        text="{ui>/workspaceStatus}"
+                        state="{= ${ui>/workspaceStatus} === 'OPEN' ? 'Success' : 'Information'}"
+                        class="sapUiSmallMarginBegin" />
+                </f:content>
+                <f:actions>
+                    <Button
+                        id="promoteBtn"
+                        text="Promote to Sourcing Project"
+                        type="Emphasized"
+                        icon="sap-icon://journey-arrive"
+                        enabled="{= ${ui>/workspaceStatus} === 'OPEN'}"
+                        press=".onPromote" />
+                </f:actions>
+            </f:DynamicPageTitle>
+        </f:title>
+        <f:header>
+            <f:DynamicPageHeader pinnable="false">
+                <mdc:FilterBar
+                    id="fb"
+                    delegate='{"name": "poc/sp/hub/requirementworkspace/delegate/FilterBarDelegate", "payload": {}}'
+                    showClearButton="true">
+                    <mdc:filterItems>
+                        <mdc:FilterField
+                            id="ffDescription"
+                            label="Description"
+                            propertyKey="description"
+                            dataType="sap.ui.model.odata.type.String"
+                            conditions="{$filters>/conditions/description}" />
+                        <mdc:FilterField
+                            id="ffAiStatus"
+                            label="AI Status"
+                            propertyKey="aiStatus"
+                            dataType="sap.ui.model.odata.type.String"
+                            operators="EQ"
+                            conditions="{$filters>/conditions/aiStatus}" />
+                    </mdc:filterItems>
+                </mdc:FilterBar>
+            </f:DynamicPageHeader>
+        </f:header>
+        <f:content>
+            <mdc:Table
+                id="reqTable"
+                header="Requirements"
+                filter="fb"
+                selectionMode="Multi"
+                autoBindOnInit="false"
+                p13nMode="Sort,Column"
+                threshold="100"
+                showRowCount="true"
+                selectionChange=".onSelectionChange"
+                noData="No requirements in this workspace yet. Upload documents in the Intake Hub and run extraction."
+                delegate='{"name": "poc/sp/hub/requirementworkspace/delegate/TableDelegate", "payload": {"collectionPath": "/WorkspaceRequirements"}}'>
+                <mdc:type>
+                    <mdct:ResponsiveTableType growingMode="Basic" />
+                </mdc:type>
+                <mdc:actions>
+                    <mdcat:ActionToolbarAction>
+                        <Button
+                            id="acceptBtn"
+                            text="Accept"
+                            icon="sap-icon://accept"
+                            enabled="{= ${ui>/selCount} > 0}"
+                            press=".onAccept" />
+                    </mdcat:ActionToolbarAction>
+                    <mdcat:ActionToolbarAction>
+                        <Button
+                            id="editBtn"
+                            text="Edit"
+                            icon="sap-icon://edit"
+                            enabled="{= ${ui>/selCount} === 1}"
+                            press=".onEdit" />
+                    </mdcat:ActionToolbarAction>
+                    <mdcat:ActionToolbarAction>
+                        <Button
+                            id="mergeBtn"
+                            text="Merge"
+                            icon="sap-icon://combine"
+                            enabled="{= ${ui>/selCount} > 1}"
+                            press=".onMerge" />
+                    </mdcat:ActionToolbarAction>
+                    <mdcat:ActionToolbarAction>
+                        <Button
+                            id="splitBtn"
+                            text="Split"
+                            icon="sap-icon://split"
+                            enabled="{= ${ui>/selCount} === 1}"
+                            press=".onSplit" />
+                    </mdcat:ActionToolbarAction>
+                    <mdcat:ActionToolbarAction>
+                        <Button
+                            id="rejectBtn"
+                            text="Reject AI"
+                            icon="sap-icon://cancel"
+                            enabled="{= ${ui>/selCount} === 1}"
+                            press=".onReject" />
+                    </mdcat:ActionToolbarAction>
+                    <mdcat:ActionToolbarAction>
+                        <Button
+                            id="regenerateBtn"
+                            text="Regenerate"
+                            icon="sap-icon://ai"
+                            enabled="{= ${ui>/selCount} === 1}"
+                            press=".onRegenerate" />
+                    </mdcat:ActionToolbarAction>
+                    <mdcat:ActionToolbarAction>
+                        <Button
+                            id="sourcesBtn"
+                            text="Sources"
+                            icon="sap-icon://attachment"
+                            enabled="{= ${ui>/selCount} === 1}"
+                            press=".onShowSources" />
+                    </mdcat:ActionToolbarAction>
+                    <mdcat:ActionToolbarAction>
+                        <Button
+                            id="deleteBtn"
+                            text="Delete"
+                            icon="sap-icon://delete"
+                            enabled="{= ${ui>/selCount} > 0}"
+                            press=".onDelete" />
+                    </mdcat:ActionToolbarAction>
+                </mdc:actions>
+                <mdc:columns>
+                    <mdct:Column propertyKey="description" header="Description">
+                        <mdct:template>
+                            <ObjectIdentifier title="{description}" text="{normalizedDescription}" />
+                        </mdct:template>
+                    </mdct:Column>
+                    <mdct:Column propertyKey="quantity" header="Quantity" hAlign="End" width="8rem">
+                        <mdct:template>
+                            <ObjectNumber number="{quantity}" unit="{unit}" emphasized="false" />
+                        </mdct:template>
+                    </mdct:Column>
+                    <mdct:Column propertyKey="requestedDate" header="Requested" width="9rem">
+                        <mdct:template>
+                            <Text text="{requestedDate}" />
+                        </mdct:template>
+                    </mdct:Column>
+                    <mdct:Column propertyKey="materialGroup_code" header="Material Group" width="10rem">
+                        <mdct:template>
+                            <Text text="{materialGroup_code}" />
+                        </mdct:template>
+                    </mdct:Column>
+                    <mdct:Column propertyKey="commodityCode_code" header="Commodity" width="9rem">
+                        <mdct:template>
+                            <Text text="{commodityCode_code}" />
+                        </mdct:template>
+                    </mdct:Column>
+                    <mdct:Column propertyKey="confidenceScore" header="AI Confidence" width="9rem">
+                        <mdct:template>
+                            <ObjectStatus
+                                text="{path: 'confidenceScore', formatter: '.formatter.confidencePercent'}"
+                                state="{path: 'confidenceScore', formatter: '.formatter.confidenceState'}" />
+                        </mdct:template>
+                    </mdct:Column>
+                    <mdct:Column propertyKey="aiStatus" header="AI Status" width="8rem">
+                        <mdct:template>
+                            <ObjectStatus
+                                text="{aiStatus}"
+                                state="{path: 'aiStatus', formatter: '.formatter.aiStatusState'}" />
+                        </mdct:template>
+                    </mdct:Column>
+                    <mdct:Column propertyKey="duplicateOf_ID" header="Duplicate" width="10rem">
+                        <mdct:template>
+                            <ObjectStatus
+                                text="{= ${duplicateOf_ID} ? 'Possible duplicate' : ''}"
+                                state="Warning"
+                                icon="{= ${duplicateOf_ID} ? 'sap-icon://duplicate' : ''}" />
+                        </mdct:template>
+                    </mdct:Column>
+                </mdc:columns>
+            </mdc:Table>
+        </f:content>
+    </f:DynamicPage>
+</mvc:View>

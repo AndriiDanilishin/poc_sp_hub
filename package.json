@@ -17,6 +17,7 @@
     "watch-document-manager": "cds watch --open poc.sp.hub.documentmanager/index.html?sap-ui-xx-viewCache=false --livereload false",
     "watch-intake-hub": "cds watch --open poc.sp.hub.intakehub/index.html?sap-ui-xx-viewCache=false --livereload false",
     "watch-sourcing-project": "cds watch --open poc.sp.hub.sourcingproject/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "watch-requirement-workspace": "cds watch --open poc.sp.hub.requirementworkspace/index.html?sap-ui-xx-viewCache=false --livereload false",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -57,6 +58,7 @@
   "sapux": [
     "app/document-manager",
     "app/intake-hub",
-    "app/sourcing-project"
+    "app/sourcing-project",
+    "app/requirement-workspace"
   ]
 }
