@@ -66,12 +66,7 @@ sap.ui.define(
             },
 
             onInit: function () {
-                this.getView().getModel("ui").setData({
-                    workspaceId: null,
-                    workspaceStatus: "",
-                    selCount: 0
-                });
-
+                // The "ui" state model is created in Component.init before this view.
                 // Pick a default workspace once the Select has data (prefer OPEN ones).
                 var oSelect = this.byId("workspaceSelect");
                 var that = this;

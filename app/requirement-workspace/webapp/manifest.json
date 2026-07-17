@@ -56,9 +56,6 @@
           "autoExpandSelect": true,
           "earlyRequests": true
         }
-      },
-      "ui": {
-        "type": "sap.ui.model.json.JSONModel"
       }
     },
     "rootView": {
