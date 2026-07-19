@@ -7,6 +7,11 @@ gen/
 default-*.json
 *.sqlite
 
+# Secrets — never commit API keys. .env.example (committed) is the template.
+.env
+.env.local
+!.env.example
+
 # MTA
 mta_archives/
 *_mta_build_tmp

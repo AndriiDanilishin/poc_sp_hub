@@ -17,11 +17,22 @@ service IntakeService @(path: '/api/intake') {
             end as statusCriticality : Integer
         };
 
+    // Read-only list of workspaces so the upload flow can pick a target workspace
+    // for uploadDocument(workspaceId, …). Creation of workspaces stays in the
+    // Requirement Workspace app; this is a picker source only.
+    @readonly
+    entity RequirementWorkspaces as projection on db.RequirementWorkspace;
+
     // Uploads a document into a Requirement Workspace. `content` carries raw text
     // for the fully-implemented parsers (Email/RestApi/Excel CSV-TSV); binary
     // formats (PDF/Image/.xlsx) can be uploaded as metadata now and parsed once
     // their document parsers support binary content (§17).
     action   uploadDocument(workspaceId: UUID, originType: String, fileName: String, fileType: String, content: LargeString) returns SourceDocuments;
+
+    // Move a document to a different workspace. Allowed only before extraction —
+    // once EXTRACTED, the document's WorkspaceRequirement rows already live in the
+    // old workspace, so moving just the document would orphan them (§18).
+    action   changeWorkspace(documentId: UUID, newWorkspaceId: UUID)               returns SourceDocuments;
 
     action   extractRequirements(documentId: UUID)                                  returns {
         status      : String;

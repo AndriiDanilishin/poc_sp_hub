@@ -18,9 +18,11 @@ function loadConfig(overrides = {}) {
   return {
     provider: process.env.AI_PROVIDER || env.provider || 'mock',
     chatModel: process.env.AI_CHAT_MODEL || env.chatModel || 'gpt-4o-mini',
-    embedModel: process.env.AI_EMBED_MODEL || env.embedModel || 'text-embedding-3-large',
-    // Must match the Vector(3072) column in db/sourcing-schema.cds.
-    embeddingDimensions: Number(env.embeddingDimensions) || 3072,
+    embedModel: process.env.AI_EMBED_MODEL || env.embedModel || 'text-embedding-3-small',
+    // Must match the Vector(N) column in db/sourcing-schema.cds. text-embedding-3-
+    // small is 1536 (its max); -large is 3072 (needs project access to that model
+    // AND a Vector(3072) column). Change all three together if you switch models.
+    embeddingDimensions: Number(env.embeddingDimensions) || 1536,
     // Guardrail (§25): hard cap on output tokens per call.
     maxOutputTokens: Number(env.maxOutputTokens) || 1024,
     // Guardrail: reject prompts larger than this many characters.
@@ -151,7 +153,19 @@ function synthesize(schema, rand) {
 
 // ---- OpenAI provider (native fetch) -----------------------------------------
 
-async function openaiChat(config, { system, user, temperature, maxTokens }) {
+async function openaiChat(config, { system, user, schema, temperature, maxTokens }) {
+  // Two things the model needs for reliable structured output:
+  // 1. OpenAI's json_object response_format 400s unless the literal word "json"
+  //    appears in the messages.
+  // 2. Without the schema, the model invents its own field names (e.g. `items`
+  //    instead of `requirements`, `deliveryDate` instead of `requestedDate`) and
+  //    validation fails. Embedding the exact JSON schema fixes the field names.
+  let jsonSystem = system;
+  if (schema) {
+    jsonSystem += `\n\nRespond with a single JSON object that strictly matches this JSON schema (use these exact field names, no others):\n${JSON.stringify(schema)}`;
+  } else if (!/\bjson\b/i.test(system)) {
+    jsonSystem += '\nRespond with a single valid JSON object.';
+  }
   const res = await fetch(`${config.baseURL}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -161,7 +175,7 @@ async function openaiChat(config, { system, user, temperature, maxTokens }) {
     body: JSON.stringify({
       model: config.chatModel,
       messages: [
-        { role: 'system', content: system },
+        { role: 'system', content: jsonSystem },
         { role: 'user', content: user },
       ],
       temperature,
@@ -251,7 +265,7 @@ class LLMClient {
       }
       if (this.config.provider === 'openai') {
         if (!this.config.apiKey) throw new Error('OpenAI API key is not configured');
-        return openaiChat(this.config, { system: sys, user, temperature: temp, maxTokens: cap });
+        return openaiChat(this.config, { system: sys, user, schema, temperature: temp, maxTokens: cap });
       }
       throw new Error(`Unknown AI provider: ${this.config.provider}`);
     };

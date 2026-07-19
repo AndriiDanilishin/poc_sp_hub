@@ -16,6 +16,7 @@ entity SourceDocument : cuid, managed {
         Image;
         Excel;
         RestApi;
+        Text;
     };
     fileName   : String(255);
     fileType   : String(10);
@@ -170,7 +171,7 @@ entity KnowledgeDocument : cuid, managed {
     category  : String(30); // Policy, MaterialGroupCatalog, CommodityTaxonomy, PastProject, SupplierProfile, Guideline
     title     : String(200);
     content   : LargeString;
-    embedding : Vector(3072);
+    embedding : Vector(1536);
     sourceRef : String(255);
 }
 

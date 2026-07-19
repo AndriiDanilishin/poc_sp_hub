@@ -37,6 +37,15 @@ function extractTextPlain(raw, boundary) {
   return null;
 }
 
+// A block "looks like headers" only if its first non-empty line has the
+// `Name: value` shape of a real RFC-822 header. Without this guard, plain text
+// with no blank-line separator (e.g. a pasted shopping list) would be parsed
+// entirely as headers, leaving the body empty and extraction with nothing.
+function looksLikeHeaders(block) {
+  const firstLine = block.split('\n').find((l) => l.trim());
+  return !!firstLine && /^[A-Za-z][A-Za-z0-9-]*:\s/.test(firstLine);
+}
+
 function parse(input = {}) {
   let raw = typeof input.text === 'string' ? input.text : input.buffer?.toString('utf8') || '';
   if (!raw.trim()) {
@@ -45,8 +54,16 @@ function parse(input = {}) {
   raw = raw.replace(/\r\n/g, '\n');
 
   const sep = raw.indexOf('\n\n');
-  const headers = parseHeaders(sep >= 0 ? raw.slice(0, sep) : raw);
-  let body = sep >= 0 ? raw.slice(sep + 2) : '';
+  // Only treat the leading block as headers when it actually looks like headers;
+  // otherwise the whole input is the body (a non-email plain-text upload).
+  const hasHeaderBlock = sep >= 0 ? looksLikeHeaders(raw.slice(0, sep)) : looksLikeHeaders(raw);
+  const headers = hasHeaderBlock ? parseHeaders(sep >= 0 ? raw.slice(0, sep) : raw) : {};
+  let body;
+  if (!hasHeaderBlock) {
+    body = raw;
+  } else {
+    body = sep >= 0 ? raw.slice(sep + 2) : '';
+  }
 
   const boundary = /boundary="?([^";\n]+)"?/i.exec(headers['content-type'] || '');
   if (boundary) {

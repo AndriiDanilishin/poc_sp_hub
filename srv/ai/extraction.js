@@ -65,14 +65,23 @@ function toIsoDateOrNull(value) {
   return d.toISOString().slice(0, 10);
 }
 
+// LLMs sometimes emit the literal string "null"/"none"/"n/a" instead of a JSON
+// null for an absent value — normalize those to a real null.
+function cleanString(value) {
+  if (value == null) return null;
+  const str = String(value).trim();
+  if (!str || /^(null|none|n\/a|na|unknown)$/i.test(str)) return null;
+  return str;
+}
+
 function normalizeRequirement(r) {
   const quantity = Number(r.quantity);
   return {
     description: String(r.description ?? '').trim(),
     quantity: Number.isFinite(quantity) ? quantity : null,
-    unit: r.unit ? String(r.unit).trim() : null,
+    unit: cleanString(r.unit),
     requestedDate: toIsoDateOrNull(r.requestedDate),
-    rawSnippet: r.rawSnippet ? String(r.rawSnippet) : '',
+    rawSnippet: cleanString(r.rawSnippet) ?? '',
     // Per-requirement aggregate confidence, clamped to the documented 0..1 range.
     confidence: clamp01(r.confidence),
   };

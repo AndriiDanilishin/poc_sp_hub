@@ -116,6 +116,14 @@
                 "@com.sap.vocabularies.UI.v1.LineItem": {
                   "tableSettings": {
                     "type": "ResponsiveTable"
+                  },
+                  "actions": {
+                    "uploadDocument": {
+                      "press": "poc.sp.hub.intakehub.ext.fragment.UploadDialog.onOpenUpload",
+                      "visible": true,
+                      "enabled": true,
+                      "text": "Upload Document"
+                    }
                   }
                 }
               }
@@ -139,7 +147,7 @@
                       "template": "poc.sp.hub.intakehub.ext.fragment.IntakeActions",
                       "position": {
                         "placement": "After",
-                        "anchor": "GeneralInfoFacet"
+                        "anchor": "ContentFacet"
                       },
                       "title": "Actions"
                     }

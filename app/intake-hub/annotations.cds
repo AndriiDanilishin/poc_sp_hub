@@ -35,12 +35,26 @@ annotate service.SourceDocuments with @(
         {Value: errorMsg, Label: 'Error Message'},
         {Value: workspace_ID, Label: 'Workspace ID'},
     ]},
-    UI.Facets                 : [{
-        $Type : 'UI.ReferenceFacet',
-        ID    : 'GeneralInfoFacet',
-        Label : 'General Information',
-        Target: '@UI.FieldGroup#GeneralInfo',
-    }],
+    // Raw extraction preview (§26): the document text that parsing/extraction
+    // will run over. Seeded demo rows predate the content field and show empty.
+    UI.FieldGroup #Content    : {Data: [{
+        Value: content,
+        Label: 'Raw Content'
+    }]},
+    UI.Facets                 : [
+        {
+            $Type : 'UI.ReferenceFacet',
+            ID    : 'GeneralInfoFacet',
+            Label : 'General Information',
+            Target: '@UI.FieldGroup#GeneralInfo',
+        },
+        {
+            $Type : 'UI.ReferenceFacet',
+            ID    : 'ContentFacet',
+            Label : 'Document Content',
+            Target: '@UI.FieldGroup#Content',
+        }
+    ],
 );
 
 annotate service.SourceDocuments with {

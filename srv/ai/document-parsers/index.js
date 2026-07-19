@@ -24,6 +24,7 @@ const PARSERS = {
   Pdf: pdfParser,
   Image: imageParser,
   RestApi: textParser,
+  Text: textParser,
 };
 
 /**

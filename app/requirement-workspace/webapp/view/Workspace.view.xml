@@ -24,6 +24,13 @@
                         items="{path: '/RequirementWorkspaces', parameters: {$orderby: 'createdAt desc'}}">
                         <core:Item key="{ID}" text="{title} ({status})" />
                     </Select>
+                    <Button
+                        id="createWorkspaceBtn"
+                        icon="sap-icon://add"
+                        tooltip="Create Workspace"
+                        text="New"
+                        press=".onCreateWorkspace"
+                        class="sapUiSmallMarginBegin" />
                     <ObjectStatus
                         text="{ui>/workspaceStatus}"
                         state="{= ${ui>/workspaceStatus} === 'OPEN' ? 'Success' : 'Information'}"
@@ -179,11 +186,13 @@
                                 state="{path: 'confidenceScore', formatter: '.formatter.confidenceState'}" />
                         </mdct:template>
                     </mdct:Column>
-                    <mdct:Column propertyKey="aiStatus" header="AI Status" width="8rem">
+                    <mdct:Column propertyKey="aiStatus" header="AI Status" width="9rem">
                         <mdct:template>
                             <ObjectStatus
-                                text="{aiStatus}"
-                                state="{path: 'aiStatus', formatter: '.formatter.aiStatusState'}" />
+                                text="{parts: ['aiStatus', 'confidenceScore'], formatter: '.formatter.aiStatusText'}"
+                                state="{parts: ['aiStatus', 'confidenceScore'], formatter: '.formatter.aiStatusStateGated'}"
+                                icon="{parts: ['aiStatus', 'confidenceScore'], formatter: '.formatter.aiStatusIcon'}"
+                                tooltip="{parts: ['aiStatus', 'confidenceScore'], formatter: '.formatter.aiStatusTooltip'}" />
                         </mdct:template>
                     </mdct:Column>
                     <mdct:Column propertyKey="duplicateOf_ID" header="Duplicate" width="10rem">

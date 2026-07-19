@@ -221,14 +221,19 @@ module.exports = class WorkspaceService extends cds.ApplicationService {
 
       const items = await SELECT.from(WorkspaceRequirements).where({ workspace_ID: workspaceId });
 
-      // Gate: no low-confidence item may still be unreviewed (§19).
+      // Gate: no low-confidence item may still be unreviewed (§19). Name the
+      // offending rows and the fix, so the block is actionable rather than a bare count.
       const unreviewed = items.filter(
         (i) => i.aiStatus === 'PROPOSED' && (i.confidenceScore ?? 0) < CONFIDENCE_REVIEW_THRESHOLD,
       );
       if (unreviewed.length) {
+        const named = unreviewed
+          .map((i) => `"${i.description}" (${Math.round((i.confidenceScore ?? 0) * 100)}%)`)
+          .join(', ');
         return req.reject(
           409,
-          `${unreviewed.length} low-confidence requirement(s) still need review before promotion`,
+          `Review needed before promotion — the AI is unsure about ${named}. ` +
+            `Accept, Edit, or Reject ${unreviewed.length === 1 ? 'it' : 'them'} first.`,
         );
       }
 

@@ -62,6 +62,50 @@ sap.ui.define(
                         default:
                             return "None";
                     }
+                },
+
+                // A row blocks promotion when the AI is unsure (confidence < 0.5)
+                // AND no human has reviewed it yet (still PROPOSED) — mirrors the
+                // promoteToSourcingProject gate (§19). The four aiStatus* formatters
+                // below fold that "needs review" signal into the single AI Status
+                // ObjectStatus (text/state/icon/tooltip). This is deliberate: a
+                // nested/second control's binding is NOT re-evaluated per row inside
+                // an mdc ResponsiveTable column template (it fires once with
+                // undefined), so gating must live on the one cell control whose
+                // parts-binding the table does resolve per row.
+                // NOTE: inside an mdc ResponsiveTable column-template formatter,
+                // `this` is NOT the formatter object, so these must be standalone
+                // (no `this.` sibling calls). The gate is inlined in each.
+                aiStatusText: function (sStatus, vScore) {
+                    var review = sStatus === "PROPOSED" && vScore != null && Number(vScore) < 0.5;
+                    return review ? sStatus + " — review" : sStatus;
+                },
+                aiStatusStateGated: function (sStatus, vScore) {
+                    if (sStatus === "PROPOSED" && vScore != null && Number(vScore) < 0.5) {
+                        return "Error";
+                    }
+                    switch (sStatus) {
+                        case "ACCEPTED":
+                            return "Success";
+                        case "EDITED":
+                            return "Information";
+                        case "REJECTED":
+                            return "Error";
+                        case "PROPOSED":
+                            return "Warning";
+                        default:
+                            return "None";
+                    }
+                },
+                aiStatusIcon: function (sStatus, vScore) {
+                    var review = sStatus === "PROPOSED" && vScore != null && Number(vScore) < 0.5;
+                    return review ? "sap-icon://alert" : "";
+                },
+                aiStatusTooltip: function (sStatus, vScore) {
+                    var review = sStatus === "PROPOSED" && vScore != null && Number(vScore) < 0.5;
+                    return review
+                        ? "Low AI confidence and not yet reviewed — blocks promotion until you Accept, Edit, or Reject it."
+                        : "";
                 }
             },
 
@@ -70,6 +114,9 @@ sap.ui.define(
                 // Pick a default workspace once the Select has data (prefer OPEN ones).
                 // Careful: on a warm server the items may already be there before we
                 // attach — check first, then listen, and only ever select once.
+                // A ?workspace=<id> deep-link (e.g. from the Intake Hub hand-off)
+                // overrides the default and pre-selects that workspace on arrival.
+                this._sInitialWorkspaceId = this._readWorkspaceParam();
                 var oSelect = this.byId("workspaceSelect");
                 var that = this;
                 var bDone = false;
@@ -99,23 +146,144 @@ sap.ui.define(
                 fnAttach();
             },
 
+            // Read a ?workspace=<id> deep-link from either the search string or the
+            // hash query (the app runs behind a hash route), tolerant of both.
+            _readWorkspaceParam: function () {
+                try {
+                    var sSearch = window.location.search || "";
+                    var sHash = window.location.hash || "";
+                    var iQ = sHash.indexOf("?");
+                    var sHashQuery = iQ >= 0 ? sHash.slice(iQ) : "";
+                    var sId =
+                        new URLSearchParams(sSearch).get("workspace") ||
+                        new URLSearchParams(sHashQuery).get("workspace");
+                    return sId || null;
+                } catch (e) {
+                    return null;
+                }
+            },
+
             _selectDefaultWorkspace: function () {
                 var oSelect = this.byId("workspaceSelect");
                 var aItems = oSelect.getItems();
                 if (!aItems.length) {
                     return;
                 }
+                // A deep-linked workspace wins over the OPEN-preferring default,
+                // but only if it actually exists in the list; otherwise fall back.
+                var sDeepLink = this._sInitialWorkspaceId;
                 var oDefault =
+                    (sDeepLink &&
+                        aItems.find(function (oItem) {
+                            var oCtx = oItem.getBindingContext();
+                            return oCtx && oCtx.getProperty("ID") === sDeepLink;
+                        })) ||
                     aItems.find(function (oItem) {
                         var oCtx = oItem.getBindingContext();
                         return oCtx && oCtx.getProperty("status") === "OPEN";
-                    }) || aItems[0];
-                oSelect.setSelectedItem(oDefault);
+                    }) ||
+                    aItems[0];
+                oSelect.setSelectedKey(oDefault.getBindingContext().getProperty("ID"));
                 this._applyWorkspace(oDefault);
             },
 
             onWorkspaceChange: function (oEvent) {
                 this._applyWorkspace(oEvent.getParameter("selectedItem"));
+            },
+
+            // Create a new (OPEN) workspace via the writable RequirementWorkspaces
+            // projection, then drop the user into it. New workspaces are always OPEN
+            // — only promotion archives them (see onPromote / the service lifecycle).
+            onCreateWorkspace: function () {
+                var that = this;
+                var oTitle = new Input({ placeholder: "e.g. Q4 Lab Equipment", width: "100%" });
+
+                var oCreateButton = new Button({
+                    text: "Create",
+                    type: "Emphasized",
+                    enabled: false,
+                    press: function () {
+                        var sTitle = oTitle.getValue().trim();
+                        oDialog.close();
+                        that._createWorkspace(sTitle);
+                    }
+                });
+                // Guardrail: a workspace must have a non-empty title.
+                oTitle.attachLiveChange(function () {
+                    oCreateButton.setEnabled(oTitle.getValue().trim().length > 0);
+                });
+
+                var oDialog = new Dialog({
+                    title: "New Requirement Workspace",
+                    contentWidth: "26rem",
+                    content: [
+                        new VBox({
+                            items: [
+                                new Label({ text: "Title", labelFor: oTitle, required: true }),
+                                oTitle
+                            ]
+                        }).addStyleClass("sapUiSmallMargin")
+                    ],
+                    beginButton: oCreateButton,
+                    endButton: new Button({
+                        text: "Cancel",
+                        press: function () {
+                            oDialog.close();
+                        }
+                    }),
+                    afterClose: function () {
+                        oDialog.destroy();
+                    }
+                });
+                this.getView().addDependent(oDialog);
+                oDialog.open();
+            },
+
+            _createWorkspace: function (sTitle) {
+                var that = this;
+                var oListBinding = this.getView().getModel().bindList("/RequirementWorkspaces");
+                var oContext = oListBinding.create({ title: sTitle, status: "OPEN" });
+                oContext
+                    .created()
+                    .then(function () {
+                        var sNewId = oContext.getProperty("ID");
+                        MessageToast.show('Workspace "' + sTitle + '" created.');
+                        that._selectWorkspaceById(sNewId);
+                    })
+                    .catch(this._showError.bind(this));
+            },
+
+            // Refresh the selector, then select the given workspace once its item
+            // shows up. The created row isn't in getItems() synchronously after
+            // refresh(), so select by KEY (which the Select re-resolves when items
+            // arrive) and apply the workspace on dataReceived. A run-once guard plus
+            // an immediate attempt covers both warm and cold binding states.
+            _selectWorkspaceById: function (sId) {
+                var that = this;
+                var oSelect = this.byId("workspaceSelect");
+                var oBinding = oSelect.getBinding("items");
+                var bDone = false;
+                var fnPick = function () {
+                    if (bDone) {
+                        return;
+                    }
+                    var oItem = oSelect.getItems().find(function (o) {
+                        var oCtx = o.getBindingContext();
+                        return oCtx && oCtx.getProperty("ID") === sId;
+                    });
+                    if (!oItem) {
+                        return;
+                    }
+                    bDone = true;
+                    oSelect.setSelectedKey(sId);
+                    that._applyWorkspace(oItem);
+                };
+                if (oBinding) {
+                    oBinding.attachEvent("dataReceived", fnPick);
+                    oBinding.refresh();
+                    // The created row may already be in the aggregation after refresh().
+                    fnPick();
+                }
             },
 
             _applyWorkspace: function (oItem) {

@@ -1,4 +1,56 @@
-ID;createdAt;createdBy;originType;fileName;fileType;status;errorMsg;workspace_ID
-b1000000-0000-4000-8000-000000000001;2026-07-16T09:00:00+0200;requester;Email;lab-request.eml;eml;EXTRACTED;;a1000000-0000-4000-8000-000000000001
-b1000000-0000-4000-8000-000000000002;2026-07-16T09:00:00+0200;requester;Excel;lab-bom.csv;csv;EXTRACTED;;a1000000-0000-4000-8000-000000000001
-b1000000-0000-4000-8000-000000000003;2026-07-16T09:00:00+0200;requester;Pdf;supplier-quote.pdf;pdf;FAILED;PDF has no text layer - OCR fallback pending;a1000000-0000-4000-8000-000000000001
+ID;createdAt;createdBy;originType;fileName;fileType;content;status;errorMsg;workspace_ID
+b1000000-0000-4000-8000-000000000001;2026-07-16T09:00:00+0200;requester;Email;lab-request.eml;eml;"Subject: Q3 lab equipment request
+
+Hi procurement,
+
+For the new cell biology lab we need the following before end of Q3:
+- 5 x Zeiss microscopes with 40x objective, delivery by 2026-08-15
+- 3 x benchtop centrifuges, 15000 rpm
+
+Please raise a sourcing project.
+
+Thanks,
+Dr. Meyer";EXTRACTED;;a1000000-0000-4000-8000-000000000001
+b1000000-0000-4000-8000-000000000002;2026-07-16T09:00:00+0200;requester;Excel;lab-bom.csv;csv;"item;quantity;unit;needed_by
+Zeiss microscope 40x objective;5;EA;2026-08-15
+Benchtop centrifuge 15000rpm;3;EA;2026-08-20
+Nitrile gloves size M;40;BOX;2026-08-01";EXTRACTED;;a1000000-0000-4000-8000-000000000001
+b1000000-0000-4000-8000-000000000003;2026-07-16T09:00:00+0200;requester;Pdf;supplier-quote.pdf;pdf;;FAILED;PDF has no text layer - OCR fallback pending;a1000000-0000-4000-8000-000000000001
+b1000000-0000-4000-8000-000000000004;2026-07-17T08:30:00+0200;requester;Email;microscope-followup.eml;eml;"Subject: Additional microscopes for Q3 lab
+
+Hi team,
+
+Following up on the lab refresh - we also need 2 inverted microscopes
+with phase contrast by 2026-09-15 for the new imaging bench.
+
+Also add 10 boxes of nitrile gloves, size M, for the same lab.
+
+Regards,
+Dr. Meyer";UPLOADED;;a1000000-0000-4000-8000-000000000001
+b1000000-0000-4000-8000-000000000005;2026-07-17T09:15:00+0200;requester;Excel;consumables-bom.csv;csv;"item;quantity;unit;needed_by
+Pipette tips 1000uL sterile;200;BOX;2026-08-10
+Centrifuge tubes 50mL;500;EA;2026-08-10
+Cryogenic vials 2mL;300;EA;2026-08-25
+Lab coat size L;25;EA;2026-08-05";UPLOADED;;a1000000-0000-4000-8000-000000000001
+b1000000-0000-4000-8000-000000000006;2026-07-17T10:00:00+0200;requester;RestApi;partner-feed.json;json;"{
+  ""source"": ""LabSupplyPartnerFeed"",
+  ""requestedItems"": [
+    { ""description"": ""Spectrophotometer UV-Vis benchtop"", ""quantity"": 1, ""unit"": ""EA"", ""requestedDate"": ""2026-09-30"" },
+    { ""description"": ""Analytical balance 0.1mg readability"", ""quantity"": 2, ""unit"": ""EA"", ""requestedDate"": ""2026-09-01"" }
+  ]
+}";UPLOADED;;a1000000-0000-4000-8000-000000000001
+b1000000-0000-4000-8000-000000000007;2026-07-15T14:00:00+0200;requester;Email;office-chairs.eml;eml;"Subject: Ergonomic chairs for office refresh
+
+Hello procurement,
+
+For the 2026 office refresh please source 30 ergonomic task chairs
+with adjustable lumbar support, delivery by 2026-08-30.
+
+We also need 12 height-adjustable standing desks.
+
+Best,
+Facilities Team";EXTRACTED;;a1000000-0000-4000-8000-000000000002
+b1000000-0000-4000-8000-000000000008;2026-07-15T15:30:00+0200;requester;Excel;office-supplies.csv;csv;"item;quantity;unit;needed_by
+Monitor 27 inch 4K;40;EA;2026-08-30
+USB-C docking station;40;EA;2026-08-30
+Desk lamp LED dimmable;30;EA;2026-08-15";EXTRACTED;;a1000000-0000-4000-8000-000000000002

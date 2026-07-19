@@ -2,7 +2,7 @@ const cds = require('@sap/cds');
 const { parseDocument } = require('./ai/document-parsers');
 const { extractRequirements: aiExtractRequirements } = require('./ai/extraction');
 
-const ALLOWED_ORIGIN_TYPES = ['Email', 'Pdf', 'Image', 'Excel', 'RestApi'];
+const ALLOWED_ORIGIN_TYPES = ['Email', 'Pdf', 'Image', 'Excel', 'RestApi', 'Text'];
 
 module.exports = class IntakeService extends cds.ApplicationService {
   async init() {
@@ -46,6 +46,49 @@ module.exports = class IntakeService extends cds.ApplicationService {
       };
       await INSERT.into(SourceDocuments).entries(document);
       return SELECT.one.from(SourceDocuments).where({ ID: document.ID });
+    });
+
+    this.on('changeWorkspace', async (req) => {
+      const { documentId, newWorkspaceId } = req.data;
+
+      const document = await SELECT.one.from(SourceDocuments).where({ ID: documentId });
+      if (!document) {
+        return req.reject(404, `SourceDocument ${documentId} not found`);
+      }
+      if (!newWorkspaceId) {
+        return req.reject(400, 'newWorkspaceId is required');
+      }
+      const workspace = await SELECT.one.from(RequirementWorkspace).where({ ID: newWorkspaceId });
+      if (!workspace) {
+        return req.reject(404, `RequirementWorkspace ${newWorkspaceId} not found`);
+      }
+      if (document.workspace_ID === newWorkspaceId) {
+        return req.reject(400, 'Document is already in that workspace');
+      }
+      // Block after extraction: the document's requirements already live in the old
+      // workspace; moving only the document would orphan them (§18). The user must
+      // curate/delete those requirements in the Workspace app first.
+      if (document.status === 'EXTRACTED') {
+        return req.reject(
+          409,
+          'This document is already extracted — its requirements live in the current ' +
+            'workspace. Delete them in the Requirement Workspace first, then move the document.',
+        );
+      }
+
+      await UPDATE(SourceDocuments)
+        .set({ workspace_ID: newWorkspaceId })
+        .where({ ID: documentId });
+
+      await writeAudit(req, {
+        entityName: 'SourceDocument',
+        entityId: documentId,
+        action: 'CHANGE_WORKSPACE',
+        before: JSON.stringify({ workspace_ID: document.workspace_ID }),
+        after: JSON.stringify({ workspace_ID: newWorkspaceId }),
+      });
+
+      return SELECT.one.from(SourceDocuments).where({ ID: documentId });
     });
 
     // Best-effort: locate which parser segment a requirement's snippet came from,

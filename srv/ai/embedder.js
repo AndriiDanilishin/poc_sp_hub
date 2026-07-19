@@ -7,7 +7,7 @@ const LOG = cds.log('ai.embedder');
 // Embedding + vector retrieval over the curated KnowledgeDocument corpus (§15).
 //
 // Only curated knowledge is embedded here — never uploaded source documents (§15).
-// Storage note: the Vector(3072) column round-trips as a JSON string on the dev
+// Storage note: the Vector(N) column round-trips as a JSON string on the dev
 // sqlite driver, so read-back is parsed and similarity is computed in JS. That is
 // correct and portable at PoC corpus size (§30); on HANA, push COSINE_SIMILARITY
 // into SQL for scale.
