@@ -8,6 +8,16 @@ service WorkspaceService @(path: '/api/workspace') {
     @readonly
     entity RequirementSources    as projection on db.RequirementSource;
 
+    // Master data mirrored from S/4HANA, exposed read-only so the Edit dialog's
+    // value help can offer valid Material Group / Commodity codes for manual
+    // override. Read-only + searchable/paged on the client — scales past the
+    // seed's 3 rows to production-scale UNSPSC catalogs.
+    @readonly
+    entity MaterialGroups        as projection on db.MaterialGroup;
+
+    @readonly
+    entity CommodityCodes        as projection on db.CommodityCode;
+
     // Combine the selected requirements into one, unioning their source links.
     action   merge(ids: many UUID)                      returns WorkspaceRequirements;
 

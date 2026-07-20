@@ -13,9 +13,14 @@ service SourcingProjectService @(path: '/api/sourcing') {
             end as statusCriticality : Integer
         }
         actions {
-            // AI drafts title, description, timeline, priority and risks (§20).
-            // Bound: operates on this project instance; only meaningful while DRAFT.
-            @Common.SideEffects: {TargetProperties: ['_it/status', '_it/title', '_it/priority']}
+            // AI drafts title, description, timeline, priority, risks and suggested
+            // suppliers (§20). Bound: operates on this project instance; only while DRAFT.
+            // SideEffects refresh the changed header fields AND the composition tables the
+            // draft rewrites (risks + suggested suppliers) so they repopulate in place.
+            @Common.SideEffects: {
+                TargetProperties  : ['_it/status', '_it/title', '_it/priority'],
+                TargetEntities    : ['_it/risks', '_it/suggestedSuppliers']
+            }
             @Core.OperationAvailable: {$edmJson: {$Eq: [{$Path: 'in/status'}, 'DRAFT']}}
             action generateDraft() returns SourcingProjects;
 

@@ -13,13 +13,24 @@
                 editable="true">
                 <l:content>
                     <Label text="Target Workspace" required="true" />
-                    <Select
-                        id="uploadWorkspaceSelect"
-                        width="100%"
-                        forceSelection="false"
-                        items="{path: '/RequirementWorkspaces', parameters: {$orderby: 'createdAt desc'}, filters: [{path: 'status', operator: 'EQ', value1: 'OPEN'}]}">
-                        <core:Item key="{ID}" text="{title}" />
-                    </Select>
+                    <HBox width="100%" alignItems="Center">
+                        <Select
+                            id="uploadWorkspaceSelect"
+                            width="100%"
+                            forceSelection="false"
+                            items="{path: '/RequirementWorkspaces', parameters: {$orderby: 'createdAt desc'}, filters: [{path: 'status', operator: 'EQ', value1: 'OPEN'}]}">
+                            <core:Item key="{ID}" text="{title}" />
+                            <layoutData>
+                                <FlexItemData growFactor="1" />
+                            </layoutData>
+                        </Select>
+                        <Button
+                            id="uploadNewWorkspaceBtn"
+                            icon="sap-icon://add"
+                            tooltip="Create a new workspace"
+                            press="onNewWorkspace"
+                            class="sapUiTinyMarginBegin" />
+                    </HBox>
 
                     <Label text="Origin Type" required="true" />
                     <Select id="uploadOriginType" width="100%" selectedKey="Text">
@@ -56,7 +67,7 @@
                 press="onConfirmUpload" />
         </beginButton>
         <endButton>
-            <Button text="Cancel" press="onCancelUpload" />
+            <Button text="Cancel" press="onCancelUpload" id ="onCancelUpload" />
         </endButton>
     </Dialog>
 </core:FragmentDefinition>

@@ -167,15 +167,29 @@ module.exports = class WorkspaceService extends cds.ApplicationService {
       const topMaterialGroup = enrichment.materialGroups[0];
       const topCommodity = enrichment.commodityCodes[0];
 
-      // Only assign a recommendation whose code resolves against real master data —
-      // never trust an AI-returned code as a dangling reference (§25).
+      // Resolve a recommendation to a REAL master-data code. The LLM often returns a
+      // knowledge sourceRef rather than the assignable code, so try each of the
+      // candidate's codeHints (LLM code → citation → codes found in grounded content)
+      // in priority order and take the first that exists in master data. Only a code
+      // that resolves is ever assigned — no dangling reference is written (§25). If
+      // nothing resolves → null.
+      const resolveAgainstMaster = async (candidate, entity) => {
+        if (!candidate) return null;
+        const hints =
+          candidate.codeHints && candidate.codeHints.length
+            ? candidate.codeHints
+            : [candidate.code].filter(Boolean); // backward-compatible fallback
+        for (const hint of hints) {
+          // eslint-disable-next-line no-await-in-loop
+          const found = await SELECT.one.from(entity).where({ code: hint });
+          if (found) return found;
+        }
+        return null;
+      };
+
       const [resolvedMG, resolvedCC] = await Promise.all([
-        topMaterialGroup?.code
-          ? SELECT.one.from(MaterialGroup).where({ code: topMaterialGroup.code })
-          : null,
-        topCommodity?.code
-          ? SELECT.one.from(CommodityCode).where({ code: topCommodity.code })
-          : null,
+        resolveAgainstMaster(topMaterialGroup, MaterialGroup),
+        resolveAgainstMaster(topCommodity, CommodityCode),
       ]);
 
       // A fresh AI proposal needs review again, regardless of the prior aiStatus.

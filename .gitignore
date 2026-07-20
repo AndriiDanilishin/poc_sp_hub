@@ -17,6 +17,12 @@ mta_archives/
 *_mta_build_tmp
 *.mtar
 
+# Claude
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.claude.json
+
 # Other
 .DS_Store
 *.md

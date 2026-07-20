@@ -48,6 +48,31 @@ module.exports = class IntakeService extends cds.ApplicationService {
       return SELECT.one.from(SourceDocuments).where({ ID: document.ID });
     });
 
+    this.on('createWorkspace', async (req) => {
+      const title = (req.data.title || '').trim();
+      if (!title) {
+        return req.reject(400, 'title is required');
+      }
+
+      const workspace = {
+        ID: cds.utils.uuid(),
+        title,
+        status: 'OPEN',
+      };
+      // @readonly on the RequirementWorkspaces projection blocks the generic OData
+      // CRUD provider (raw POST → 405) but not this handler's own INSERT.
+      await INSERT.into(RequirementWorkspace).entries(workspace);
+
+      await writeAudit(req, {
+        entityName: 'RequirementWorkspace',
+        entityId: workspace.ID,
+        action: 'CREATE_WORKSPACE',
+        after: JSON.stringify({ title, status: 'OPEN' }),
+      });
+
+      return SELECT.one.from(RequirementWorkspace).where({ ID: workspace.ID });
+    });
+
     this.on('changeWorkspace', async (req) => {
       const { documentId, newWorkspaceId } = req.data;
 

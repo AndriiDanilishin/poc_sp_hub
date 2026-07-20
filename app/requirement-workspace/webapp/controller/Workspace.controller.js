@@ -12,6 +12,10 @@ sap.ui.define(
         "sap/m/Label",
         "sap/m/Input",
         "sap/m/ObjectAttribute",
+        "sap/m/SelectDialog",
+        "sap/m/StandardListItem",
+        "sap/m/ProgressIndicator",
+        "sap/ui/model/json/JSONModel",
         "sap/ui/model/Filter",
         "sap/ui/model/FilterOperator"
     ],
@@ -28,6 +32,10 @@ sap.ui.define(
         Label,
         Input,
         ObjectAttribute,
+        SelectDialog,
+        StandardListItem,
+        ProgressIndicator,
+        JSONModel,
         Filter,
         FilterOperator
     ) {
@@ -330,9 +338,14 @@ sap.ui.define(
             },
 
             // Unbound OData action helper (merge/split/reject/regenerate/promote all
-            // take explicit params — see srv/workspace-service.cds).
-            _callAction: function (sName, mParams) {
-                var oOperation = this.getView().getModel().bindContext("/" + sName + "(...)");
+            // take explicit params — see srv/workspace-service.cds). Pass sGroupId to
+            // put the call in its own request group — required for bulk fan-out so
+            // parallel invokes don't share (and cancel) one $auto batch.
+            _callAction: function (sName, mParams, sGroupId) {
+                var mBindingParams = sGroupId ? { $$groupId: sGroupId } : undefined;
+                var oOperation = this.getView()
+                    .getModel()
+                    .bindContext("/" + sName + "(...)", undefined, mBindingParams);
                 Object.keys(mParams || {}).forEach(function (sKey) {
                     oOperation.setParameter(sKey, mParams[sKey]);
                 });
@@ -413,20 +426,221 @@ sap.ui.define(
                     .catch(this._showError.bind(this));
             },
 
+            // Concurrency cap for bulk enrichment. AI enrichment is I/O-bound and each
+            // backend regenerate() also runs master-data SELECTs — a small pool keeps
+            // several in flight without hammering the server / AI provider. Tune if the
+            // provider rate-limits.
+            _ENRICH_CONCURRENCY: 4,
+
             onRegenerate: function () {
                 var that = this;
-                var oPage = this.byId("page");
-                var sId = this._selectedContexts()[0].getProperty("ID");
-                oPage.setBusy(true);
-                this._callAction("regenerate", { id: sId })
-                    .then(function () {
-                        MessageToast.show("AI enrichment regenerated — review the new proposal.");
+                var aContexts = this._selectedContexts();
+                if (!aContexts.length) {
+                    return;
+                }
+
+                // Single selection: keep the original behavior verbatim (backward compat)
+                // — one action call, the original toast, page-busy indicator.
+                if (aContexts.length === 1) {
+                    var oPage = this.byId("page");
+                    var sId = aContexts[0].getProperty("ID");
+                    oPage.setBusy(true);
+                    this._callAction("regenerate", { id: sId })
+                        .then(function () {
+                            MessageToast.show("AI enrichment regenerated — review the new proposal.");
+                            that._refreshTable();
+                        })
+                        .catch(this._showError.bind(this))
+                        .finally(function () {
+                            oPage.setBusy(false);
+                        });
+                    return;
+                }
+
+                // Multi selection: enrich every selected row via the SAME backend
+                // regenerate action (no duplicated business logic), bounded concurrency,
+                // continue-on-failure, live progress + per-row refresh, final summary.
+                this._runBulkEnrichment(aContexts);
+            },
+
+            _runBulkEnrichment: function (aContexts) {
+                var that = this;
+                var oUiModel = this.getView().getModel("ui");
+                var iTotal = aContexts.length;
+
+                // Snapshot id + context up front (selection is cleared on refresh).
+                var aItems = aContexts.map(function (oCtx) {
+                    return {
+                        id: oCtx.getProperty("ID"),
+                        description: oCtx.getProperty("description"),
+                        context: oCtx
+                    };
+                });
+
+                oUiModel.setProperty("/enriching", true); // disables the button
+                var oProgress = this._openProgressDialog(iTotal);
+                var iDone = 0;
+
+                // Worker: enrich one requirement via the reused backend action. Each call
+                // uses the predefined "$direct" group so it is sent immediately as its own
+                // HTTP request. This avoids two failure modes seen with the default $auto
+                // group: (a) concurrent operations sharing one $auto batch cancel each
+                // other; (b) a custom named group is deferred and never auto-submitted.
+                var fnWorker = function (oItem) {
+                    return that._callAction("regenerate", { id: oItem.id }, "$direct");
+                };
+
+                // After each item settles: bump progress. NOTE: we deliberately do NOT
+                // refresh individual row contexts here — refreshing a context while sibling
+                // operations are still pending on the same model cancels them. All rows are
+                // refreshed once at the end via _refreshTable().
+                var fnOnEach = function () {
+                    iDone += 1;
+                    that._updateProgressDialog(oProgress, iDone, iTotal);
+                };
+
+                this._runWithConcurrency(aItems, this._ENRICH_CONCURRENCY, fnWorker, fnOnEach)
+                    .then(function (aResults) {
+                        that._closeProgressDialog(oProgress);
+                        oUiModel.setProperty("/enriching", false);
                         that._refreshTable();
+                        that._showBulkSummary(aResults);
                     })
-                    .catch(this._showError.bind(this))
-                    .finally(function () {
-                        oPage.setBusy(false);
+                    .catch(function (oError) {
+                        // The runner never rejects per-item; this only guards an
+                        // unexpected orchestration error.
+                        that._closeProgressDialog(oProgress);
+                        oUiModel.setProperty("/enriching", false);
+                        that._refreshTable();
+                        that._showError(oError);
                     });
+            },
+
+            // Promise-pool: keeps up to iLimit workers in flight, each pulling the next
+            // item when it finishes. NEVER rejects per item — a failing fnWorker is
+            // captured as { ok:false, error }, so the pool always drains (continue on
+            // failure). Resolves to the array of all results. Pure client-side utility.
+            _runWithConcurrency: function (aItems, iLimit, fnWorker, fnOnEach) {
+                return new Promise(function (resolve) {
+                    var aResults = [];
+                    var iNext = 0;
+                    var iActive = 0;
+                    var iTotal = aItems.length;
+
+                    if (iTotal === 0) {
+                        resolve(aResults);
+                        return;
+                    }
+
+                    // Dispatch ONE item. Kept as its own function so each item captures
+                    // its own oItem/iIndex — a `var` inside the pump loop would be shared
+                    // across all iterations' closures (all results would reference the
+                    // last item).
+                    var runOne = function (oItem, iIndex) {
+                        Promise.resolve()
+                            .then(function () {
+                                return fnWorker(oItem, iIndex);
+                            })
+                            .then(function (vValue) {
+                                return { item: oItem, ok: true, value: vValue };
+                            })
+                            .catch(function (oError) {
+                                return { item: oItem, ok: false, error: oError };
+                            })
+                            .then(function (oResult) {
+                                aResults.push(oResult);
+                                if (fnOnEach) {
+                                    fnOnEach(oResult);
+                                }
+                                iActive -= 1;
+                                if (aResults.length === iTotal) {
+                                    resolve(aResults);
+                                } else {
+                                    pump();
+                                }
+                            });
+                    };
+
+                    var pump = function () {
+                        while (iActive < iLimit && iNext < iTotal) {
+                            runOne(aItems[iNext], iNext);
+                            iNext += 1;
+                            iActive += 1;
+                        }
+                    };
+                    pump();
+                });
+            },
+
+            _openProgressDialog: function (iTotal) {
+                var oModel = new JSONModel({
+                    percent: 0,
+                    text: "Enriching 0 of " + iTotal + "…"
+                });
+                var oIndicator = new ProgressIndicator({
+                    percentValue: "{prog>/percent}",
+                    displayValue: "{prog>/text}",
+                    showValue: true,
+                    width: "100%",
+                    state: "Information"
+                });
+                var oDialog = new Dialog({
+                    title: "Enriching requirements",
+                    contentWidth: "24rem",
+                    // No close button — the run must finish (button is already disabled).
+                    content: [
+                        new VBox({
+                            items: [
+                                new Text({ text: "Running AI enrichment on the selected requirements." }),
+                                oIndicator.addStyleClass("sapUiSmallMarginTop")
+                            ]
+                        }).addStyleClass("sapUiSmallMargin")
+                    ]
+                });
+                oDialog.setModel(oModel, "prog");
+                this.getView().addDependent(oDialog);
+                oDialog.open();
+                return oDialog;
+            },
+
+            _updateProgressDialog: function (oDialog, iDone, iTotal) {
+                if (!oDialog) {
+                    return;
+                }
+                var oModel = oDialog.getModel("prog");
+                oModel.setProperty("/percent", Math.round((iDone / iTotal) * 100));
+                oModel.setProperty("/text", "Enriching " + iDone + " of " + iTotal + "…");
+            },
+
+            _closeProgressDialog: function (oDialog) {
+                if (oDialog) {
+                    oDialog.close();
+                    oDialog.destroy();
+                }
+            },
+
+            _showBulkSummary: function (aResults) {
+                var aFailed = aResults.filter(function (r) {
+                    return !r.ok;
+                });
+                var iOk = aResults.length - aFailed.length;
+
+                if (!aFailed.length) {
+                    MessageBox.success(
+                        "Enriched " + iOk + " requirement(s). Review the new proposals."
+                    );
+                    return;
+                }
+
+                var sNames = aFailed
+                    .map(function (r) {
+                        return '"' + (r.item.description || r.item.id) + '"';
+                    })
+                    .join(", ");
+                MessageBox.warning(
+                    "Enriched " + iOk + " of " + aResults.length + " requirement(s). " +
+                        aFailed.length + " failed: " + sNames + ". Select the failed row(s) and retry."
+                );
             },
 
             onDelete: function () {
@@ -550,6 +764,51 @@ sap.ui.define(
 
             // --- Edit (inline curation, §19) ------------------------------------
 
+            // Open a searchable, paged value-help dialog over a read-only master-data
+            // list (MaterialGroups / CommodityCodes). Scales past the seed's 3 rows to
+            // production-scale UNSPSC catalogs: growing/paged list + server-side search
+            // on the key/label. On confirm, writes the picked code into oInput and
+            // records it on oState so Save can patch the association FK.
+            _openCodeValueHelp: function (mConfig) {
+                var oInput = mConfig.input;
+                var oState = mConfig.state;
+                var aSearchFields = mConfig.searchFields; // OData props to filter on
+
+                var oDialog = new SelectDialog({
+                    title: mConfig.title,
+                    growing: true,
+                    growingThreshold: 50,
+                    contentWidth: "28rem",
+                    items: {
+                        path: "/" + mConfig.entitySet,
+                        template: new StandardListItem({
+                            title: "{" + mConfig.keyProp + "}",
+                            description: "{" + mConfig.textProp + "}"
+                        })
+                    },
+                    search: function (oEvent) {
+                        var sValue = oEvent.getParameter("value");
+                        var oBinding = oEvent.getParameter("itemsBinding");
+                        var aFilters = sValue
+                            ? [new Filter(aSearchFields.map(function (sField) {
+                                return new Filter(sField, FilterOperator.Contains, sValue);
+                            }), false)]
+                            : [];
+                        oBinding.filter(aFilters);
+                    },
+                    confirm: function (oEvent) {
+                        var oItem = oEvent.getParameter("selectedItem");
+                        var sCode = oItem ? oItem.getTitle() : "";
+                        oInput.setValue(sCode);
+                        oState.code = sCode || null;
+                    },
+                    cancel: function () {}
+                });
+                oDialog.setModel(oInput.getModel()); // the OData v4 default model
+                this.getView().addDependent(oDialog);
+                oDialog.open();
+            },
+
             onEdit: function () {
                 var that = this;
                 var oCtx = this._selectedContexts()[0];
@@ -559,6 +818,46 @@ sap.ui.define(
                 var oQuantity = new Input({ value: oData.quantity != null ? String(oData.quantity) : "", type: "Number" });
                 var oUnit = new Input({ value: oData.unit || "" });
                 var oDate = new Input({ value: oData.requestedDate || "", placeholder: "YYYY-MM-DD" });
+
+                // Material Group / Commodity: read-only inputs driven by value help
+                // (typing a code by hand invites typos / dangling FKs — the picker
+                // guarantees a valid code). oState tracks the staged code for Save.
+                var oMgState = { code: oData.materialGroup_code || null };
+                var oCcState = { code: oData.commodityCode_code || null };
+                var oMaterialGroup = new Input({
+                    value: oData.materialGroup_code || "",
+                    placeholder: "Select a Material Group",
+                    showValueHelp: true,
+                    valueHelpOnly: true,
+                    valueHelpRequest: function () {
+                        that._openCodeValueHelp({
+                            input: oMaterialGroup,
+                            state: oMgState,
+                            title: "Select Material Group",
+                            entitySet: "MaterialGroups",
+                            keyProp: "code",
+                            textProp: "name",
+                            searchFields: ["code", "name"]
+                        });
+                    }
+                });
+                var oCommodity = new Input({
+                    value: oData.commodityCode_code || "",
+                    placeholder: "Select a Commodity Code",
+                    showValueHelp: true,
+                    valueHelpOnly: true,
+                    valueHelpRequest: function () {
+                        that._openCodeValueHelp({
+                            input: oCommodity,
+                            state: oCcState,
+                            title: "Select Commodity Code",
+                            entitySet: "CommodityCodes",
+                            keyProp: "code",
+                            textProp: "description",
+                            searchFields: ["code", "description"]
+                        });
+                    }
+                });
 
                 var oDialog = new Dialog({
                     title: "Edit Requirement",
@@ -573,7 +872,11 @@ sap.ui.define(
                                 new Label({ text: "Unit", labelFor: oUnit }).addStyleClass("sapUiTinyMarginTop"),
                                 oUnit,
                                 new Label({ text: "Requested Date", labelFor: oDate }).addStyleClass("sapUiTinyMarginTop"),
-                                oDate
+                                oDate,
+                                new Label({ text: "Material Group", labelFor: oMaterialGroup }).addStyleClass("sapUiTinyMarginTop"),
+                                oMaterialGroup,
+                                new Label({ text: "Commodity", labelFor: oCommodity }).addStyleClass("sapUiTinyMarginTop"),
+                                oCommodity
                             ]
                         }).addStyleClass("sapUiSmallMargin")
                     ],
@@ -595,6 +898,12 @@ sap.ui.define(
                             }
                             if (oDate.getValue() !== (oData.requestedDate || "")) {
                                 aPatches.push(oCtx.setProperty("requestedDate", oDate.getValue() || null));
+                            }
+                            if (oMgState.code !== (oData.materialGroup_code || null)) {
+                                aPatches.push(oCtx.setProperty("materialGroup_code", oMgState.code));
+                            }
+                            if (oCcState.code !== (oData.commodityCode_code || null)) {
+                                aPatches.push(oCtx.setProperty("commodityCode_code", oCcState.code));
                             }
                             oDialog.close();
                             if (!aPatches.length) {

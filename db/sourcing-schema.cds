@@ -171,6 +171,8 @@ entity KnowledgeDocument : cuid, managed {
     category  : String(30); // Policy, MaterialGroupCatalog, CommodityTaxonomy, PastProject, SupplierProfile, Guideline
     title     : String(200);
     content   : LargeString;
+    // Must match AI_EMBED_DIMENSIONS / the embed model's native size (llm-client.js):
+    // text-embedding-3-small → 1536, -large → 3072. Keep these three in sync.
     embedding : Vector(1536);
     sourceRef : String(255);
 }

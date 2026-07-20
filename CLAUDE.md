@@ -31,7 +31,7 @@ Per the roadmap in `docs/solution-architecture.md` §29, upcoming work replaces 
 
 **Two real-OpenAI bugs found + fixed during first live extraction** (mock never exercised them): (1) **`json_object` 400** — OpenAI rejects `response_format: json_object` unless the literal word "json" appears in the messages; `openaiChat` now guarantees it. (2) **wrong field names** — without the schema in the prompt, the model invents its own keys (`items` instead of `requirements`, `deliveryDate` instead of `requestedDate`, `textSnippet` instead of `rawSnippet`), so validation fails with `$.requirements: required`. Fix: `openaiChat` now **embeds the JSON schema** in the system prompt ("use these exact field names") — the mock path is unaffected (it synthesizes from the schema directly). Also hardened `extraction.js` `normalizeRequirement`: LLMs sometimes emit the literal string `"null"`/`"none"`/`"n/a"` for an absent unit/snippet — `cleanString()` maps those to real `null`.
 
-**Embedding model access + dimensions** (found when Regenerate/enrichment 403'd — `Project ... does not have access to model 'text-embedding-3-large'`): the RAG path (`WorkspaceService.regenerate` → `enrichment` → `embedder`) needs a working **embed** model, and many OpenAI projects only grant `text-embedding-3-small`. Switched the default embed model to **`text-embedding-3-small`** — but its max output is **1536 dims** (it can't produce 3072), so the `KnowledgeDocument.embedding` column moved from `Vector(3072)` → **`Vector(1536)`** and `embeddingDimensions` config default → 1536, to match. **These three must always agree**: `AI_EMBED_MODEL`, `embeddingDimensions`, and the Vector column size — change them together. (`-large`/3072 needs both project access to that model AND `Vector(3072)`.) The legacy chat-hub `db/schema.cds` still declares `Vector(3072)` — untouched, it's the separate `workspace`-namespace example, not the sourcing RAG path. After changing dims, run `KnowledgeService.reindex` once to re-embed the corpus. Verified live: reindex embeds 5 docs, and `regenerate` succeeds on multiple requirements with real RAG grounding (`enriched "Microscope, 40x objective": 1 MG, 1 CC, 1 suppliers`, resolving `MG-LAB-001` from the real corpus).
+**Embedding model access + dimensions**: the RAG path (`WorkspaceService.regenerate` → `enrichment` → `embedder`) needs a working **embed** model. The default is **`text-embedding-3-large`** (**3072 dims**), matched by the `KnowledgeDocument.embedding` column `Vector(3072)` and the `embeddingDimensions` config default of 3072. **These three must always agree**: `AI_EMBED_MODEL`, `embeddingDimensions`, and the Vector column size — change them together. `-large`/3072 needs project access to that model AND a `Vector(3072)` column; if a project only grants `text-embedding-3-small` (max **1536 dims**), switch all three to 1536 together (`AI_EMBED_MODEL=text-embedding-3-small`, `embeddingDimensions=1536`, `Vector(1536)`). The legacy chat-hub `db/schema.cds` also declares `Vector(3072)` — it's the separate `workspace`-namespace example, not the sourcing RAG path. After changing dims, run `KnowledgeService.reindex` once to re-embed the corpus. Verified live: reindex embeds 5 docs, and `regenerate` succeeds on multiple requirements with real RAG grounding (`enriched "Microscope, 40x objective": 1 MG, 1 CC, 1 suppliers`, resolving `MG-LAB-001` from the real corpus).
 
 Built on the adapter so far:
 
@@ -121,3 +121,50 @@ Validated end-to-end headlessly (zero page errors): badge states verified via DO
 **All three §26 apps are now built and validated.** Frontend verification convention: no `chromium-cli` on this Windows host — install `playwright@1.61` into the session scratchpad (never the repo), drive `http://localhost:4004/poc.sp.hub.<app>/index.html?sap-language=EN` with `httpCredentials` for the mocked users, screenshot + assert, then delete the scratchpad install. `Component-preload.js` 404s and LrepConnector errors in the console are normal dev-mode noise.
 
 **Test data**: `test/data/workspace-*.csv` seeds the four `workspace` entities. `test/data/sourcing-*.csv` seeds all 16 `sourcing` entities with one coherent cross-referenced dataset spanning two flows — an in-progress Workspace (`Q3 Lab Equipment Refresh`, includes a flagged duplicate and an unreviewed low-confidence item) and a completed one (`Office Refresh 2026`, promoted → approved, with its `PurchaseReqLog` and `AuditLog` trail). The 5 seeded `KnowledgeDocument` rows have no embedding until `KnowledgeService.reindex` is called once.
+
+## Definition of Done
+
+A task is **not complete** until all of the following have been completed.
+
+### Verification
+
+After implementing any feature, bug fix, or refactor, you must:
+
+- Verify the solution works as intended.
+- Run all relevant tests.
+- Run linting and type checks when applicable.
+- Ensure no existing functionality has regressed.
+
+### Backend Changes
+
+If you modify any backend code (API endpoints, services, actions, business logic, models, authentication, events, request/response schemas, or workflows), you must:
+
+1. Update `test/api.http` to reflect the current implementation.
+2. Remove obsolete requests.
+3. Add requests for all new endpoints and actions.
+4. Keep authentication, variables, IDs, and example payloads valid.
+5. Execute every request in `test/api.http` against the local server.
+6. Fix any failing requests.
+7. Repeat until **every request passes**.
+8. Do not mark the task complete until `test/api.http` accurately documents the current API.
+
+### Final Response
+
+Before finishing, include:
+
+- Summary of changes.
+- Files modified.
+- Verification steps performed.
+- Test/lint/typecheck results.
+- Confirmation that `test/api.http` was updated (if required).
+- Confirmation that all API requests passed.
+- Any known limitations or follow-up work.
+
+### Never Assume
+
+- Do not claim that tests passed unless you actually executed them.
+- Do not claim an endpoint works unless you verified it.
+- Do not claim `test/api.http` is up to date unless you updated and executed it successfully.
+- If verification cannot be completed, explicitly explain why and what remains to be done.
+
+

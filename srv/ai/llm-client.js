@@ -13,16 +13,32 @@ const LOG = cds.log('ai.llm');
 //   - 'mock'   : deterministic, offline; the default so dev/CI run without a key.
 // -----------------------------------------------------------------------------
 
+// Native embedding size per model — used to default embeddingDimensions so it can't
+// silently disagree with the model (requesting 3072 from -small is a 400). -small maxes
+// at 1536; -large at 3072. Override explicitly via AI_EMBED_DIMENSIONS / cds.env.ai.
+const MODEL_EMBED_DIMS = {
+  'text-embedding-3-small': 1536,
+  'text-embedding-3-large': 3072,
+  'text-embedding-ada-002': 1536,
+};
+
 function loadConfig(overrides = {}) {
   const env = cds.env.ai || {};
+  const embedModel =
+    process.env.AI_EMBED_MODEL || env.embedModel || 'text-embedding-3-large';
   return {
     provider: process.env.AI_PROVIDER || env.provider || 'mock',
     chatModel: process.env.AI_CHAT_MODEL || env.chatModel || 'gpt-4o-mini',
-    embedModel: process.env.AI_EMBED_MODEL || env.embedModel || 'text-embedding-3-small',
-    // Must match the Vector(N) column in db/sourcing-schema.cds. text-embedding-3-
-    // small is 1536 (its max); -large is 3072 (needs project access to that model
-    // AND a Vector(3072) column). Change all three together if you switch models.
-    embeddingDimensions: Number(env.embeddingDimensions) || 1536,
+    embedModel,
+    // Must match the Vector(N) column in db/sourcing-schema.cds. Defaulted from the
+    // embed model (small→1536, large→3072) so model + dimensions never disagree; an
+    // explicit AI_EMBED_DIMENSIONS / cds.env.ai.embeddingDimensions still wins. Change
+    // the model, the dimensions, and the Vector column together when switching.
+    embeddingDimensions:
+      Number(process.env.AI_EMBED_DIMENSIONS) ||
+      Number(env.embeddingDimensions) ||
+      MODEL_EMBED_DIMS[embedModel] ||
+      3072,
     // Guardrail (§25): hard cap on output tokens per call.
     maxOutputTokens: Number(env.maxOutputTokens) || 1024,
     // Guardrail: reject prompts larger than this many characters.

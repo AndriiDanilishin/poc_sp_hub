@@ -9,6 +9,10 @@ service IntakeService @(path: '/api/intake') {
     entity SourceDocuments as
         projection on db.SourceDocument {
             *,
+            // Workspace title exposed alongside workspace_ID so the UI can show the
+            // human-readable name (e.g. "HTTP smoke ws") instead of the raw UUID,
+            // via TextArrangement (see annotations.cds).
+            workspace.title as workspaceTitle : String,
             case status
                 when 'FAILED'     then 1
                 when 'EXTRACTING' then 2
@@ -18,10 +22,15 @@ service IntakeService @(path: '/api/intake') {
         };
 
     // Read-only list of workspaces so the upload flow can pick a target workspace
-    // for uploadDocument(workspaceId, …). Creation of workspaces stays in the
-    // Requirement Workspace app; this is a picker source only.
+    // for uploadDocument(workspaceId, …). Creation goes through createWorkspace()
+    // below (mirrors uploadDocument): the entity stays @readonly so a raw POST is
+    // blocked, but the action handler's own INSERT is unaffected by @readonly.
     @readonly
     entity RequirementWorkspaces as projection on db.RequirementWorkspace;
+
+    // Create a new (OPEN) workspace so the user can add one without leaving the
+    // Intake Hub. New workspaces are always OPEN — only promotion archives them.
+    action   createWorkspace(title: String)                                         returns RequirementWorkspaces;
 
     // Uploads a document into a Requirement Workspace. `content` carries raw text
     // for the fully-implemented parsers (Email/RestApi/Excel CSV-TSV); binary

@@ -19,15 +19,18 @@ const SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
 const SYSTEM_PROMPT = [
   'You draft a sourcing project from a set of accepted procurement requirements.',
   'You propose values for a human to review. You never decide, approve, or submit anything.',
-  'Ground the draft in the retrieved guidelines and past projects; do not invent policy.',
+  'Ground the draft in the retrieved guidelines, past projects and supplier profiles; do',
+  'not invent policy or suppliers.',
   'Return named fields only: a concise title, a description, a category, a priority',
-  `(one of ${PRIORITIES.join('/')}), a suggested timeline (ISO dates or null), and a list of`,
-  `risks each with a severity (one of ${SEVERITIES.join('/')}) and a mitigation.`,
+  `(one of ${PRIORITIES.join('/')}), a suggested timeline (ISO dates or null), a list of`,
+  `risks each with a severity (one of ${SEVERITIES.join('/')}) and a mitigation, and a list`,
+  'of suggested suppliers (only suppliers named in the retrieved supplier profiles), each',
+  'with a confidence between 0 and 1 and a short rationale.',
 ].join(' ');
 
 const DRAFT_SCHEMA = {
   type: 'object',
-  required: ['title', 'description', 'priority', 'timeline', 'risks'],
+  required: ['title', 'description', 'priority', 'timeline', 'risks', 'suppliers'],
   properties: {
     title: { type: 'string' },
     description: { type: 'string' },
@@ -54,8 +57,26 @@ const DRAFT_SCHEMA = {
         },
       },
     },
+    suppliers: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['name', 'confidence'],
+        properties: {
+          name: { type: 'string' },
+          confidence: { type: 'number' },
+          rationale: { type: ['string', 'null'] },
+          citation: { type: ['string', 'null'] },
+        },
+      },
+    },
   },
 };
+
+function clamp01(n) {
+  const x = Number(n);
+  return Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
+}
 
 // Strict: JS `new Date()` leniently accepts junk like "mock-42" (→ year 2041),
 // so require an ISO leading date and sanity-check the year before trusting it.
@@ -95,7 +116,7 @@ function summarizeRequirements(requirements) {
     .join('\n');
 }
 
-function normalizeDraft(result, { maxRisks, grounding }) {
+function normalizeDraft(result, { maxRisks, maxSuppliers, grounding }) {
   const risks = (result.risks || [])
     .map((r) => ({
       description: String(r.description || '').trim(),
@@ -105,6 +126,17 @@ function normalizeDraft(result, { maxRisks, grounding }) {
     }))
     .filter((r) => r.description.length > 0)
     .slice(0, maxRisks);
+
+  const suppliers = (result.suppliers || [])
+    .map((s) => ({
+      name: String(s.name || '').trim(),
+      confidence: clamp01(s.confidence),
+      rationale: s.rationale ? String(s.rationale).trim() : null,
+      citation: s.citation ? String(s.citation).trim() : null,
+    }))
+    .filter((s) => s.name.length > 0)
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, maxSuppliers);
 
   return {
     title: String(result.title || '').trim() || 'Untitled Sourcing Project',
@@ -116,6 +148,7 @@ function normalizeDraft(result, { maxRisks, grounding }) {
       end: toIsoDateOrNull(result.timeline?.end),
     },
     risks,
+    suppliers,
     grounding,
   };
 }
@@ -129,19 +162,24 @@ function normalizeDraft(result, { maxRisks, grounding }) {
  * @returns {Promise<object>} the proposed draft (title, description, category, priority, timeline, risks, grounding)
  */
 async function draftSourcingProject(requirements, opts = {}) {
-  const { topK = 5, maxRisks = 5, workspaceTitle } = opts;
+  const { topK = 5, maxRisks = 5, maxSuppliers = 5, workspaceTitle } = opts;
   if (!Array.isArray(requirements) || requirements.length === 0) {
     throw new Error('draftSourcingProject requires at least one requirement');
   }
 
   const summary = summarizeRequirements(requirements);
 
-  // RAG grounding from guidelines and similar past projects (§20).
-  const [guidelines, pastProjects] = await Promise.all([
+  // RAG grounding from guidelines, similar past projects and supplier profiles (§20).
+  const [guidelines, pastProjects, supplierProfiles] = await Promise.all([
     embedder.search(summary, { category: 'Guideline', topK }),
     embedder.search(summary, { category: 'PastProject', topK }),
+    embedder.search(summary, { category: 'SupplierProfile', topK }),
   ]);
-  const context = formatContext({ Guidelines: guidelines, 'Past projects': pastProjects });
+  const context = formatContext({
+    Guidelines: guidelines,
+    'Past projects': pastProjects,
+    'Supplier profiles': supplierProfiles,
+  });
 
   const result = await llm.chat({
     system: SYSTEM_PROMPT,
@@ -154,11 +192,15 @@ async function draftSourcingProject(requirements, opts = {}) {
 
   const draft = normalizeDraft(result, {
     maxRisks,
-    grounding: [...guidelines, ...pastProjects].map((d) => d.sourceRef || d.ID),
+    maxSuppliers,
+    grounding: [...guidelines, ...pastProjects, ...supplierProfiles].map(
+      (d) => d.sourceRef || d.ID,
+    ),
   });
 
   LOG.info(
-    `drafted project "${draft.title}" from ${requirements.length} requirement(s), ${draft.risks.length} risk(s)`,
+    `drafted project "${draft.title}" from ${requirements.length} requirement(s), ` +
+      `${draft.risks.length} risk(s), ${draft.suppliers.length} supplier(s)`,
   );
   return draft;
 }

@@ -3,8 +3,8 @@ const { draftSourcingProject } = require('./ai/project-drafting');
 
 module.exports = class SourcingProjectService extends cds.ApplicationService {
   async init() {
-    const { SourcingProjects, Requirements, Risks } = this.entities;
-    const AuditLog = cds.entities('sourcing').AuditLog;
+    const { SourcingProjects, Requirements, Risks, SourcingProjectSuppliers } = this.entities;
+    const { AuditLog, Supplier } = cds.entities('sourcing');
 
     const writeAudit = (req, entry) =>
       INSERT.into(AuditLog).entries({
@@ -66,6 +66,41 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
         );
       }
 
+      // Resolve each drafted supplier NAME to a real Supplier (master data keys on the BP
+      // number, the AI returns a name). Case-insensitive containment match, since the AI
+      // name ("Zeiss Instruments") rarely equals the legal name ("Zeiss Instruments GmbH")
+      // verbatim. Only a supplier that resolves to a real Supplier.ID is written — an
+      // unmatched AI name is dropped, never a dangling reference (§25).
+      const supplierMaster = await SELECT.from(Supplier).columns('ID', 'name');
+      const resolvedSuppliers = [];
+      const seenSupplierIds = new Set();
+      for (const s of draft.suppliers || []) {
+        const needle = s.name.toLowerCase();
+        const match = supplierMaster.find((c) => {
+          const n = String(c.name || '').toLowerCase();
+          return n.includes(needle) || needle.includes(n);
+        });
+        if (match && !seenSupplierIds.has(match.ID)) {
+          seenSupplierIds.add(match.ID);
+          resolvedSuppliers.push({ supplier: match, rationale: s.rationale, confidence: s.confidence });
+        }
+      }
+
+      // Replace only the AI-authored supplier rows; human-added ones are kept (§25).
+      await DELETE.from(SourcingProjectSuppliers).where({ project_ID: id, aiGenerated: true });
+      if (resolvedSuppliers.length) {
+        await INSERT.into(SourcingProjectSuppliers).entries(
+          resolvedSuppliers.map((r) => ({
+            ID: cds.utils.uuid(),
+            project_ID: id,
+            supplier_ID: r.supplier.ID,
+            rationale: r.rationale,
+            confidenceScore: r.confidence,
+            aiGenerated: true,
+          })),
+        );
+      }
+
       await writeAudit(req, {
         entityName: 'SourcingProject',
         entityId: id,
@@ -75,6 +110,8 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
           title: draft.title,
           priority: draft.priority,
           risksProposed: draft.risks.length,
+          suppliersProposed: (draft.suppliers || []).length,
+          suppliersResolved: resolvedSuppliers.length,
         }),
       });
 

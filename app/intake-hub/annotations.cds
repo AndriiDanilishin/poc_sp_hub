@@ -33,7 +33,15 @@ annotate service.SourceDocuments with @(
             Criticality: statusCriticality
         },
         {Value: errorMsg, Label: 'Error Message'},
-        {Value: workspace_ID, Label: 'Workspace ID'},
+        {
+            $Type: 'UI.DataFieldWithUrl',
+            Value: workspaceTitle,
+            Label: 'Workspace',
+            Url  : {$edmJson: {$Apply: [
+                '/poc.sp.hub.requirementworkspace/index.html?workspace=',
+                {$Path: 'workspace_ID'}
+            ], $Function: 'odata.concat'}}
+        },
     ]},
     // Raw extraction preview (§26): the document text that parsing/extraction
     // will run over. Seeded demo rows predate the content field and show empty.
@@ -65,5 +73,6 @@ annotate service.SourceDocuments with {
     status         @title: 'Status' @readonly;
     errorMsg       @title: 'Error Message' @readonly;
     workspace_ID   @title: 'Workspace ID';
+    workspaceTitle @title: 'Workspace';
     createdAt      @title: 'Uploaded At';
 };

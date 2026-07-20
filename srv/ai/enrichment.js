@@ -96,12 +96,61 @@ function formatContext(groups) {
   return parts.join('\n\n');
 }
 
-function normalizeList(list, maxPerType) {
+// Master-data code shapes we can recognize in free text (§5). UNSPSC commodity codes
+// are 8-digit numbers; material groups look like MG-XXX-NNN. Extend as catalogs grow.
+const CODE_PATTERNS = [
+  /\bMG-[A-Z0-9]+-\d+\b/g, // MaterialGroup, e.g. MG-LAB-001
+  /\b\d{8}\b/g, // UNSPSC commodity, e.g. 41100000
+];
+
+// Pull any master-data-shaped codes out of a blob of text (title/content/sourceRef).
+function extractCodes(text) {
+  const s = String(text || '');
+  const out = [];
+  for (const re of CODE_PATTERNS) {
+    const matches = s.match(re);
+    if (matches) out.push(...matches);
+  }
+  return out;
+}
+
+// Build an ordered, de-duped list of candidate master-data codes for a recommendation,
+// so the service can resolve against real master data even when the LLM echoes a
+// knowledge sourceRef instead of the assignable code. Priority (most trusted first):
+//   1. the code the LLM returned (may already be the real code),
+//   2. the cited knowledge sourceRef (aligned to the real code for catalog docs),
+//   3. any code-shaped token found in the cited grounding doc's title/content.
+// Pure logic — no DB, no business decision; still proposes only (§25).
+function buildCodeHints(candidate, groundingDocs) {
+  const hints = [];
+  const push = (v) => {
+    const t = String(v || '').trim();
+    if (t && !hints.includes(t)) hints.push(t);
+  };
+
+  push(candidate.code);
+  push(candidate.citation);
+
+  // Scan the doc the candidate cited (fall back to all retrieved docs) for real codes.
+  const cited = (groundingDocs || []).filter(
+    (d) => candidate.citation && (d.sourceRef === candidate.citation || d.ID === candidate.citation),
+  );
+  const scanDocs = cited.length ? cited : groundingDocs || [];
+  for (const d of scanDocs) {
+    for (const c of extractCodes(`${d.title || ''} ${d.content || ''} ${d.sourceRef || ''}`)) {
+      push(c);
+    }
+  }
+  return hints;
+}
+
+function normalizeList(list, maxPerType, groundingDocs) {
   return (list || [])
     .map((item) => ({
       ...item,
       confidence: clamp01(item.confidence),
       citation: item.citation ?? null,
+      codeHints: buildCodeHints(item, groundingDocs),
     }))
     .sort((a, b) => b.confidence - a.confidence)
     .slice(0, maxPerType);
@@ -144,9 +193,11 @@ async function enrichRequirement(requirement, opts = {}) {
   });
 
   const enriched = {
-    materialGroups: normalizeList(result.materialGroups, maxPerType),
-    commodityCodes: normalizeList(result.commodityCodes, maxPerType),
-    suppliers: normalizeList(result.suppliers, maxPerType),
+    // Pass the retrieved docs so each candidate gets robust codeHints for resolution
+    // against real master data (§25) — the LLM often echoes a sourceRef, not the code.
+    materialGroups: normalizeList(result.materialGroups, maxPerType, materialGroupCtx),
+    commodityCodes: normalizeList(result.commodityCodes, maxPerType, commodityCtx),
+    suppliers: normalizeList(result.suppliers, maxPerType, supplierCtx),
     // Which knowledge grounded the request — kept for auditability/explainability.
     grounding: {
       materialGroups: materialGroupCtx.map((d) => d.sourceRef || d.ID),
@@ -163,4 +214,11 @@ async function enrichRequirement(requirement, opts = {}) {
   return enriched;
 }
 
-module.exports = { enrichRequirement, ENRICHMENT_SCHEMA, SYSTEM_PROMPT, CATEGORY_FOR };
+module.exports = {
+  enrichRequirement,
+  ENRICHMENT_SCHEMA,
+  SYSTEM_PROMPT,
+  CATEGORY_FOR,
+  extractCodes,
+  buildCodeHints,
+};

@@ -1,0 +1,347 @@
+### AI Procurement Assistant — REST client smoke tests
+#
+# Exercises all four CAP services end-to-end against a local `cds watch` server.
+#   IntakeService           /api/intake
+#   WorkspaceService        /api/workspace
+#   SourcingProjectService  /api/sourcing
+#   KnowledgeService        /api/knowledge
+#
+# Auth is `mocked` (see package.json cds.requires.auth). HTTP Basic, empty password:
+#   curator   -> KnowledgeCurator
+#   requester -> ProcurementRequester
+#   manager   -> ProcurementRequester + ProcurementManager
+#
+# Run with the VS Code "REST Client" extension (or JetBrains HTTP client).
+# Send requests top-to-bottom; later requests reuse IDs captured from earlier ones.
+# Seeded IDs come from test/data/sourcing-*.csv.
+
+@host = http://localhost:4004
+
+# Basic auth headers (base64 of "user:")
+@curator   = Authorization: Basic Y3VyYXRvcjo=
+@requester = Authorization: Basic cmVxdWVzdGVyOg==
+@manager   = Authorization: Basic bWFuYWdlcjo=
+
+# Seeded IDs (test/data/sourcing-*.csv)
+@wsOpen        = a1000000-0000-4000-8000-000000000001
+@wsArchived    = a1000000-0000-4000-8000-000000000002
+@docUploaded   = b1000000-0000-4000-8000-000000000004
+@docExtracted  = b1000000-0000-4000-8000-000000000001
+@reqAccepted   = c1000000-0000-4000-8000-000000000003
+@reqLowConf    = c1000000-0000-4000-8000-000000000004
+@projApproved  = e1000000-0000-4000-8000-000000000001
+
+
+###############################################################################
+# Service metadata / discovery
+###############################################################################
+
+### Intake service document
+GET {{host}}/api/intake/$metadata
+{{requester}}
+
+### Workspace service document
+GET {{host}}/api/workspace/
+{{requester}}
+
+### Sourcing service document
+GET {{host}}/api/sourcing/
+{{requester}}
+
+### Knowledge service document
+GET {{host}}/api/knowledge/
+{{curator}}
+
+
+###############################################################################
+# IntakeService  /api/intake
+###############################################################################
+
+### List source documents (with computed statusCriticality + workspaceTitle)
+# workspaceTitle exposes the associated workspace's human-readable name (e.g.
+# "Q3 Lab Equipment Refresh") so the Object Page shows the title, not the raw UUID.
+GET {{host}}/api/intake/SourceDocuments?$select=ID,fileName,status,statusCriticality,workspace_ID,workspaceTitle&$orderby=createdAt
+{{requester}}
+
+### List workspaces available as upload targets
+GET {{host}}/api/intake/RequirementWorkspaces?$filter=status eq 'OPEN'
+{{requester}}
+
+### Guard: raw POST to RequirementWorkspaces is blocked (@readonly) -> expect 405
+POST {{host}}/api/intake/RequirementWorkspaces
+{{requester}}
+Content-Type: application/json
+
+{ "title": "hack workspace", "status": "OPEN" }
+
+### Create a new OPEN workspace inline (via action; entity stays @readonly)
+# @name intakeWs
+POST {{host}}/api/intake/createWorkspace
+{{requester}}
+Content-Type: application/json
+
+{ "title": "Intake Hub inline workspace" }
+
+### Capture the new workspace id
+@intakeWsId = {{intakeWs.response.body.d.ID}}
+
+### Guard: createWorkspace with blank title -> expect 400
+POST {{host}}/api/intake/createWorkspace
+{{requester}}
+Content-Type: application/json
+
+{ "title": "   " }
+
+### Upload into the inline-created workspace to prove it's a usable target
+POST {{host}}/api/intake/uploadDocument
+{{requester}}
+Content-Type: application/json
+
+{
+  "workspaceId": "{{intakeWsId}}",
+  "originType": "Text",
+  "fileName": "inline-ws-check.txt",
+  "fileType": "txt",
+  "content": "Source 3 monitor arms for the inline workspace."
+}
+
+### Read one document incl. raw content
+GET {{host}}/api/intake/SourceDocuments/{{docUploaded}}
+{{requester}}
+
+### Guard: raw POST is blocked (@readonly) -> expect 405
+POST {{host}}/api/intake/SourceDocuments
+{{requester}}
+Content-Type: application/json
+
+{ "fileName": "hack.txt", "status": "EXTRACTED" }
+
+### Upload a plain-text document into the OPEN workspace (default originType Text)
+# @name upload
+POST {{host}}/api/intake/uploadDocument
+{{requester}}
+Content-Type: application/json
+
+{
+  "workspaceId": "{{wsOpen}}",
+  "originType": "Text",
+  "fileName": "adhoc-request.txt",
+  "fileType": "txt",
+  "content": "Please source 8 laptop docking stations and 8 USB-C hubs for the new hires, delivery by 2026-09-30."
+}
+
+### Capture the uploaded document id
+@newDoc = {{upload.response.body.d.ID}}
+
+### Extract requirements from the freshly uploaded doc
+# Under the mock AI provider this yields one placeholder requirement (expected offline).
+# Set AI_PROVIDER=openai + OPENAI_API_KEY in .env for real structured extraction.
+POST {{host}}/api/intake/extractRequirements
+{{requester}}
+Content-Type: application/json
+
+{ "documentId": "{{newDoc}}" }
+
+### Poll extraction status
+GET {{host}}/api/intake/getExtractionStatus(documentId={{newDoc}})
+{{requester}}
+
+### Guard: re-extract an already-EXTRACTED seeded doc -> expect 409
+POST {{host}}/api/intake/extractRequirements
+{{requester}}
+Content-Type: application/json
+
+{ "documentId": "{{docExtracted}}" }
+
+### Guard: extract seeded doc that has no content -> expect 400 (no content to extract)
+# The 200/FAILED path is only for parse/extraction failures on docs that HAVE content;
+# a doc with null content is rejected up front by the "no content" guard (400).
+POST {{host}}/api/intake/extractRequirements
+{{requester}}
+Content-Type: application/json
+
+{ "documentId": "b1000000-0000-4000-8000-000000000003" }
+
+### changeWorkspace on the new (UPLOADED) doc — allowed before extraction
+# NOTE: run BEFORE the extract above if you want it to succeed; after EXTRACTED -> 409.
+POST {{host}}/api/intake/changeWorkspace
+{{requester}}
+Content-Type: application/json
+
+{ "documentId": "{{newDoc}}", "newWorkspaceId": "{{wsArchived}}" }
+
+
+###############################################################################
+# WorkspaceService  /api/workspace
+###############################################################################
+
+### List requirements in the OPEN workspace
+GET {{host}}/api/workspace/WorkspaceRequirements?$filter=workspace_ID eq {{wsOpen}}&$orderby=confidenceScore desc
+{{requester}}
+
+### Read one requirement with its source links
+GET {{host}}/api/workspace/WorkspaceRequirements/{{reqAccepted}}?$expand=sources
+{{requester}}
+
+### Read-only requirement sources
+GET {{host}}/api/workspace/RequirementSources
+{{requester}}
+
+### Read-only master data — material groups (value help for the Edit dialog)
+GET {{host}}/api/workspace/MaterialGroups?$select=code,name
+{{requester}}
+
+### Read-only master data — commodity codes (value help for the Edit dialog)
+GET {{host}}/api/workspace/CommodityCodes?$select=code,description
+{{requester}}
+
+### Edit a requirement's Material Group + Commodity via value help (PATCH FK codes)
+# What the Workspace app's Edit dialog Save does. The before-UPDATE hook flips the
+# row to aiStatus='EDITED'. Uses a valid seeded code so the FK resolves.
+PATCH {{host}}/api/workspace/WorkspaceRequirements/{{reqAccepted}}
+{{requester}}
+Content-Type: application/json
+
+{ "materialGroup_code": "MG-LAB-001", "commodityCode_code": "41100000" }
+
+### Create a new workspace (plain OData POST — projection is writable)
+# @name newWs
+POST {{host}}/api/workspace/RequirementWorkspaces
+{{requester}}
+Content-Type: application/json
+
+{ "title": "HTTP smoke-test workspace", "status": "OPEN" }
+
+### Capture new workspace id
+@smokeWs = {{newWs.response.body.ID}}
+
+### Split a requirement (duplicates it)
+POST {{host}}/api/workspace/split
+{{requester}}
+Content-Type: application/json
+
+{ "id": "{{reqAccepted}}" }
+
+### Regenerate AI enrichment for the low-confidence requirement (RAG-grounded)
+POST {{host}}/api/workspace/regenerate
+{{requester}}
+Content-Type: application/json
+
+{ "id": "{{reqLowConf}}" }
+
+### Reject a requirement's AI enrichment
+POST {{host}}/api/workspace/reject
+{{requester}}
+Content-Type: application/json
+
+{ "id": "{{reqLowConf}}" }
+
+### Merge two requirements into one (unions source links)
+POST {{host}}/api/workspace/merge
+{{requester}}
+Content-Type: application/json
+
+{ "ids": [ "c1000000-0000-4000-8000-000000000001", "c1000000-0000-4000-8000-000000000002" ] }
+
+### Guard: promote OPEN workspace — blocked by low-confidence gate -> expect 409
+# The 42% "safety goggles" row (PROPOSED, conf<0.5) blocks promotion until reviewed.
+POST {{host}}/api/workspace/promoteToSourcingProject
+{{requester}}
+Content-Type: application/json
+
+{ "workspaceId": "{{wsOpen}}" }
+
+
+###############################################################################
+# SourcingProjectService  /api/sourcing
+###############################################################################
+
+### List sourcing projects (with computed statusCriticality)
+GET {{host}}/api/sourcing/SourcingProjects?$select=ID,title,status,statusCriticality
+{{manager}}
+
+### Read the approved project with all composition children
+GET {{host}}/api/sourcing/SourcingProjects/{{projApproved}}?$expand=requirements,risks,suggestedSuppliers,commodityCodes
+{{manager}}
+
+### AI-generated suggested suppliers for a project (populated by generateDraft)
+# generateDraft proposes risks AND suppliers; each supplier resolves an AI name to real
+# Supplier master data (aiGenerated=true). Empty until a DRAFT project is drafted.
+GET {{host}}/api/sourcing/SourcingProjectSuppliers?$filter=aiGenerated eq true&$expand=supplier($select=name)&$select=rationale,confidenceScore,aiGenerated
+{{manager}}
+
+### Read-only master data (value help)
+GET {{host}}/api/sourcing/MaterialGroups?$top=5
+{{manager}}
+
+### Read-only master data — commodity codes
+GET {{host}}/api/sourcing/CommodityCodes?$top=5
+{{manager}}
+
+### Read-only master data — suppliers
+GET {{host}}/api/sourcing/Suppliers?$top=5
+{{manager}}
+
+### Purchase requisition submission log (read-only audit)
+GET {{host}}/api/sourcing/PurchaseReqLogs
+{{manager}}
+
+### Guard: generateDraft on APPROVED project — frozen -> expect 409
+POST {{host}}/api/sourcing/SourcingProjects({{projApproved}})/SourcingProjectService.generateDraft
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### Guard: approve an already-APPROVED project -> expect 409
+POST {{host}}/api/sourcing/SourcingProjects({{projApproved}})/SourcingProjectService.approve
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### submitToS4 on the APPROVED project — deliberate stub -> expect 501 (Phase 5)
+POST {{host}}/api/sourcing/SourcingProjects({{projApproved}})/SourcingProjectService.submitToS4
+{{manager}}
+Content-Type: application/json
+
+{}
+
+
+###############################################################################
+# KnowledgeService  /api/knowledge
+###############################################################################
+
+### List curated knowledge documents (reads are open)
+GET {{host}}/api/knowledge/KnowledgeDocuments?$select=ID,category,title,sourceRef
+{{curator}}
+
+### List by category (function)
+GET {{host}}/api/knowledge/listByCategory(category='MaterialGroupCatalog')
+{{curator}}
+
+### (Re)index the corpus — embeds documents so RAG search works
+POST {{host}}/api/knowledge/reindex
+{{curator}}
+Content-Type: application/json
+
+{ "onlyMissing": false }
+
+### Index a new curated document
+POST {{host}}/api/knowledge/indexDocument
+{{curator}}
+Content-Type: application/json
+
+{
+  "category": "Guideline",
+  "title": "HTTP smoke-test guideline",
+  "content": "Prefer framework suppliers for lab consumables under EUR 5000.",
+  "sourceRef": "SMOKE-TEST-001"
+}
+
+### Guard: a non-curator cannot index -> expect 403
+POST {{host}}/api/knowledge/indexDocument
+{{requester}}
+Content-Type: application/json
+
+{ "category": "Guideline", "title": "nope", "content": "x", "sourceRef": "X" }

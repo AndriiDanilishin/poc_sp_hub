@@ -39,6 +39,17 @@
   },
   "sap.ui5": {
     "flexEnabled": true,
+    "extends": {
+      "extensions": {
+        "sap.ui.controllerExtensions": {
+          "sap.fe.templates.ObjectPage.ObjectPageController": {
+            "controllerNames": [
+              "poc.sp.hub.sourcingproject.ext.controller.ObjectPageExt"
+            ]
+          }
+        }
+      }
+    },
     "dependencies": {
       "minUI5Version": "1.150.0",
       "libs": {

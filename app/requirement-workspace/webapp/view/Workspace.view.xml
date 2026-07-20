@@ -131,9 +131,9 @@
                     <mdcat:ActionToolbarAction>
                         <Button
                             id="regenerateBtn"
-                            text="Regenerate"
+                            text="Enrichment"
                             icon="sap-icon://ai"
-                            enabled="{= ${ui>/selCount} === 1}"
+                            enabled="{= ${ui>/selCount} &gt;= 1 &amp;&amp; !${ui>/enriching} }"
                             press=".onRegenerate" />
                     </mdcat:ActionToolbarAction>
                     <mdcat:ActionToolbarAction>

@@ -16,7 +16,10 @@ sap.ui.define(
                     new JSONModel({
                         workspaceId: null,
                         workspaceStatus: "",
-                        selCount: 0
+                        selCount: 0,
+                        // True while a bulk Enrichment run is in flight — disables the
+                        // Enrichment button to prevent duplicate requests.
+                        enriching: false
                     }),
                     "ui"
                 );
