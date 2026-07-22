@@ -57,10 +57,14 @@ GET {{host}}/api/knowledge/
 # IntakeService  /api/intake
 ###############################################################################
 
-### List source documents (with computed statusCriticality + workspaceTitle)
+### List source documents (with computed statusCriticality + workspaceTitle + workspaceUrl)
 # workspaceTitle exposes the associated workspace's human-readable name (e.g.
 # "Q3 Lab Equipment Refresh") so the Object Page shows the title, not the raw UUID.
-GET {{host}}/api/intake/SourceDocuments?$select=ID,fileName,status,statusCriticality,workspace_ID,workspaceTitle&$orderby=createdAt
+# workspaceUrl is the ready-made deep link into the Requirement Workspace app —
+# computed as a String here because building it in the annotation with odata.concat
+# over the Guid workspace_ID made Fiori Elements throw "Don't know how to format
+# sap.ui.model.odata.type.Guid to boolean" on every Object Page load.
+GET {{host}}/api/intake/SourceDocuments?$select=ID,fileName,status,statusCriticality,fileSize,workspace_ID,workspaceTitle,workspaceUrl&$orderby=createdAt
 {{requester}}
 
 ### List workspaces available as upload targets
@@ -109,12 +113,24 @@ Content-Type: application/json
 GET {{host}}/api/intake/SourceDocuments/{{docUploaded}}
 {{requester}}
 
-### Guard: raw POST is blocked (@readonly) -> expect 405
+### Guard: raw POST is blocked -> expect 403
+# SourceDocuments is no longer @readonly: that also blocked OData media-stream
+# writes, so PUT .../contentBinary returned 405 and binary upload was impossible.
+# The projection now grants only READ+UPDATE, so CREATE is refused here (403)...
 POST {{host}}/api/intake/SourceDocuments
 {{requester}}
 Content-Type: application/json
 
 { "fileName": "hack.txt", "status": "EXTRACTED" }
+
+### Guard: raw PATCH of a non-stream field is blocked -> expect 405
+# ...and the before-UPDATE handler rejects any UPDATE that is not exactly the
+# contentBinary stream, so granting UPDATE is not a general write opening.
+PATCH {{host}}/api/intake/SourceDocuments/{{docUploaded}}
+{{requester}}
+Content-Type: application/json
+
+{ "status": "EXTRACTED" }
 
 ### Upload a plain-text document into the OPEN workspace (default originType Text)
 # @name upload
@@ -169,6 +185,105 @@ POST {{host}}/api/intake/changeWorkspace
 Content-Type: application/json
 
 { "documentId": "{{newDoc}}", "newWorkspaceId": "{{wsArchived}}" }
+
+
+###############################################################################
+# IntakeService — binary file upload (PDF) via OData media stream
+#
+# Two steps by design: uploadDocument() creates the row (so its validation runs
+# and a workspace is always assigned), then the bytes are PUT to the entity's
+# media stream. This keeps the file inside CAP's auth/CSRF handling — no custom
+# Express route — and avoids the ~33% inflation of base64-ing it through the
+# action payload.
+###############################################################################
+
+### Create the metadata row for a PDF (fileSize is the client's claim)
+# @name pdfUpload
+POST {{host}}/api/intake/uploadDocument
+{{requester}}
+Content-Type: application/json
+
+{
+  "workspaceId": "{{wsOpen}}",
+  "originType": "Pdf",
+  "fileName": "supplier-quote-upload.pdf",
+  "fileType": "pdf",
+  "fileSize": 901
+}
+
+### Capture the new document id
+@pdfDoc = {{pdfUpload.response.body.d.ID}}
+
+### PUT the raw PDF bytes to the media stream -> expect 204
+# The after-UPDATE handler then corrects fileSize to the bytes actually stored,
+# since the fileSize above is only what the client claimed.
+# NOTE: needs a real PDF on disk; adjust the path to one available locally.
+PUT {{host}}/api/intake/SourceDocuments({{pdfDoc}})/contentBinary
+{{requester}}
+Content-Type: application/pdf
+
+< ./data/sample.pdf
+
+### Read back the corrected fileSize
+GET {{host}}/api/intake/SourceDocuments/{{pdfDoc}}?$select=fileName,fileType,fileSize,status
+{{requester}}
+
+### Extract from the uploaded PDF -> pdf-parse reads the text layer
+# Each requirement's RequirementSource.location is the real page ("page 1"),
+# because the parser emits one segment per page.
+POST {{host}}/api/intake/extractRequirements
+{{requester}}
+Content-Type: application/json
+
+{ "documentId": "{{pdfDoc}}" }
+
+### Guard: replacing the file after extraction is blocked -> expect 409
+# The requirements already derived from the old bytes would silently no longer
+# match the stored document.
+PUT {{host}}/api/intake/SourceDocuments({{pdfDoc}})/contentBinary
+{{requester}}
+Content-Type: application/pdf
+
+< ./data/sample.pdf
+
+### Guard: oversize upload is refused up front -> expect 400
+# The 10 MB cap is enforced server-side as well as in the browser; the client
+# check is a UX affordance, not a control.
+POST {{host}}/api/intake/uploadDocument
+{{requester}}
+Content-Type: application/json
+
+{
+  "workspaceId": "{{wsOpen}}",
+  "originType": "Pdf",
+  "fileName": "too-big.pdf",
+  "fileType": "pdf",
+  "fileSize": 20971520
+}
+
+### Guard: binary Excel is refused with an actionable message -> expect 200/FAILED
+# .xlsx parsing is deliberately unsupported: the npm `xlsx` package is
+# unmaintained with unpatched prototype-pollution + ReDoS advisories, and parsing
+# user-uploaded files is exactly that threat model. Users export to CSV instead.
+# @name xlsxDoc
+POST {{host}}/api/intake/uploadDocument
+{{requester}}
+Content-Type: application/json
+
+{
+  "workspaceId": "{{wsOpen}}",
+  "originType": "Excel",
+  "fileName": "bom.xlsx",
+  "fileType": "xlsx",
+  "content": "placeholder"
+}
+
+### Extract it -> FAILED with the "re-save as CSV" message
+POST {{host}}/api/intake/extractRequirements
+{{requester}}
+Content-Type: application/json
+
+{ "documentId": "{{xlsxDoc.response.body.d.ID}}" }
 
 
 ###############################################################################
@@ -252,6 +367,54 @@ Content-Type: application/json
 { "workspaceId": "{{wsOpen}}" }
 
 
+### --- Successful promotion: enriched classification carries to project level ---
+### 1. Fresh workspace for a clean promotion
+# @name promoWs
+POST {{host}}/api/workspace/RequirementWorkspaces
+{{requester}}
+Content-Type: application/json
+
+{ "title": "Promotion carry-over test", "status": "OPEN" }
+
+### Capture its id
+@promoWsId = {{promoWs.response.body.ID}}
+
+### 2. Add two ACCEPTED requirements with DIFFERENT real master-data codes
+# (simulates post-Enrichment + Accept). Lab microscopes vs. office/PPE gloves — so we can
+# prove per-item classification is preserved (not collapsed into one bucket).
+POST {{host}}/api/workspace/WorkspaceRequirements
+{{requester}}
+Content-Type: application/json
+
+{ "workspace_ID": "{{promoWsId}}", "description": "inverted microscopes with phase contrast", "quantity": 2, "unit": "EA", "materialGroup_code": "MG-LAB-001", "commodityCode_code": "41100000", "aiStatus": "ACCEPTED", "confidenceScore": 1.0 }
+
+###
+POST {{host}}/api/workspace/WorkspaceRequirements
+{{requester}}
+Content-Type: application/json
+
+{ "workspace_ID": "{{promoWsId}}", "description": "boxes of nitrile gloves, size M", "quantity": 10, "unit": "EA", "materialGroup_code": "MG-OFF-001", "commodityCode_code": "44100000", "aiStatus": "ACCEPTED", "confidenceScore": 1.0 }
+
+### 3. Promote -> expect 200 { sourcingProjectId, requirementsCopied: 2 }
+# @name promote
+POST {{host}}/api/workspace/promoteToSourcingProject
+{{requester}}
+Content-Type: application/json
+
+{ "workspaceId": "{{promoWsId}}" }
+
+### Capture the new project id
+@promoProjId = {{promote.response.body.sourcingProjectId}}
+
+### 4. Read the project. Expect BOTH:
+# - PER-ITEM: each requirement keeps its own materialGroup_code + commodityCode_code
+#   (microscopes -> MG-LAB-001/41100000; gloves -> MG-OFF-001/44100000).
+# - PROJECT ROLLUP (summary): materialGroup_code = the majority (MG-LAB-001), and two
+#   commodityCodes rows (41100000 + 44100000, aiGenerated=true).
+GET {{host}}/api/sourcing/SourcingProjects/{{promoProjId}}?$expand=requirements($select=description,materialGroup_code,commodityCode_code),commodityCodes
+{{requester}}
+
+
 ###############################################################################
 # SourcingProjectService  /api/sourcing
 ###############################################################################
@@ -320,7 +483,14 @@ GET {{host}}/api/knowledge/KnowledgeDocuments?$select=ID,category,title,sourceRe
 GET {{host}}/api/knowledge/listByCategory(category='MaterialGroupCatalog')
 {{curator}}
 
-### (Re)index the corpus — embeds documents so RAG search works
+### (Re)index the corpus — embeds documents so RAG search works.
+# NOTE: srv/server.js also auto-runs reindex({onlyMissing:true}) on startup, so a
+# fresh DB self-heals its embeddings without this call. Use this to force a full
+# re-embed (e.g. after changing the embed model / dimensions, or after expanding the
+# seed corpus). The seed corpus has 15 KnowledgeDocuments across MaterialGroupCatalog
+# (MG-LAB-001/002, MG-OFF-001, MG-IT-001), CommodityTaxonomy (41100000/42130000/
+# 44100000/43210000), SupplierProfile, Policy and PastProject — so lab consumables,
+# instruments, office and IT items each ground to a distinct material group + commodity.
 POST {{host}}/api/knowledge/reindex
 {{curator}}
 Content-Type: application/json

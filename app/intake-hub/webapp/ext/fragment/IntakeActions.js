@@ -1,179 +1,230 @@
 sap.ui.define(
   [
-    'sap/m/MessageBox',
-    'sap/m/MessageToast',
-    'sap/m/Dialog',
-    'sap/m/Button',
-    'sap/m/Select',
-    'sap/ui/core/Item',
-    'sap/m/Label',
-    'sap/m/VBox',
-    'sap/ui/model/Filter',
-    'sap/ui/model/FilterOperator',
+    "sap/ui/core/Fragment",
+    "sap/m/MessageBox",
+    "sap/m/MessageToast",
+    "poc/sp/hub/intakehub/ext/lib/ActionRunner",
+    "poc/sp/hub/intakehub/ext/lib/WorkspacePicker"
   ],
-  function (
-    MessageBox,
-    MessageToast,
-    Dialog,
-    Button,
-    Select,
-    Item,
-    Label,
-    VBox,
-    Filter,
-    FilterOperator,
-  ) {
-    'use strict';
+  function (Fragment, MessageBox, MessageToast, ActionRunner, WorkspacePicker) {
+    "use strict";
+
+    var CHANGE_WS_FRAGMENT_ID = "changeWorkspaceFrag";
+
+    // Poll getExtractionStatus while a document sits in EXTRACTING, so the page
+    // reflects EXTRACTED/FAILED without a manual reload. Extraction is a single
+    // synchronous action today, so this only matters when another client (or a
+    // second tab) started it — hence the short, bounded schedule.
+    var POLL_INTERVAL_MS = 1500;
+    var POLL_MAX_ATTEMPTS = 20;
+
+    // Handle of the in-flight poll, so navigating away mid-poll doesn't leave up
+    // to POLL_MAX_ATTEMPTS calls firing against a destroyed context.
+    var iPollTimer = null;
+
+    function stopPolling() {
+      if (iPollTimer) {
+        window.clearTimeout(iPollTimer);
+        iPollTimer = null;
+      }
+    }
+
+    /**
+     * These handlers are declared as Object Page HEADER actions in manifest.json,
+     * so `this` is the ObjectPage ExtensionAPI and the bound context arrives as
+     * the event's `contexts` parameter (FE passes the selected/page context).
+     * Falls back to the ExtensionAPI's own binding context.
+     *
+     * @param {sap.ui.base.Event} oEvent the press event
+     * @param {object} oExtensionAPI the ExtensionAPI (`this` in the handler)
+     * @returns {sap.ui.model.odata.v4.Context} the document's context
+     */
+    function contextOf(oEvent, oExtensionAPI) {
+      var aContexts = oEvent && oEvent.getParameter && oEvent.getParameter("contexts");
+      if (aContexts && aContexts.length) {
+        return aContexts[0];
+      }
+      return oExtensionAPI.getBindingContext();
+    }
+
+    function bundleOf(oExtensionAPI) {
+      return oExtensionAPI.getModel("i18n").getResourceBundle();
+    }
 
     return {
-    /**
-     * Enables "Change Workspace" only before extraction. Once a document is
-     * EXTRACTED its requirements already live in the current workspace, so the
-     * backend blocks the move (§18) — mirror that in the button state.
-     */
-    formatMoveEnabled: function (sStatus) {
-      return sStatus !== 'EXTRACTED';
-    },
+      /**
+       * Calls IntakeService.extractRequirements(documentId) for the document
+       * currently shown on the Object Page, then refreshes it so the updated
+       * status/errorMsg are visible without a manual page reload.
+       *
+       * FE gates this button on status via the manifest's `enabled` expression
+       * (UPLOADED or FAILED only), so there is no in-handler status pre-check.
+       */
+      onExtract: function (oEvent) {
+        var oExtensionAPI = this;
+        var oContext = contextOf(oEvent, oExtensionAPI);
+        var oModel = oContext.getModel();
+        var oBundle = bundleOf(oExtensionAPI);
+        var sDocumentId = oContext.getProperty("ID");
 
-    /**
-     * Calls IntakeService.extractRequirements(documentId) for the document
-     * currently shown on the Object Page, then refreshes it so the updated
-     * status/errorMsg are visible without a manual page reload.
-     */
-    onExtract: function (oEvent) {
-      var oButton = oEvent.getSource();
-      var oContext = oButton.getBindingContext();
-      var oModel = oContext.getModel();
-      var sDocumentId = oContext.getProperty('ID');
-      var sWorkspaceId = oContext.getProperty('workspace_ID');
-
-      oButton.setEnabled(false);
-
-      var oActionBinding = oModel.bindContext('/extractRequirements(...)');
-      oActionBinding.setParameter('documentId', sDocumentId);
-
-      oActionBinding
-        .execute()
-        .then(function () {
-          var oResult = oActionBinding.getBoundContext().getObject();
-          if (oResult.status === 'FAILED') {
-            MessageBox.error(
-              'Extraction failed. See the Status field below for the error message.',
-            );
-          } else if (oResult.status === 'EXTRACTED') {
-            // Hand off to the Requirement Workspace, deep-linked to this
-            // document's workspace so all its new requirements are in view.
-            MessageBox.success(
-              oResult.itemsCreated + ' requirement(s) created in the Workspace.',
-              {
-                title: 'Extracted',
-                actions: ['Open Workspace', MessageBox.Action.CLOSE],
-                emphasizedAction: 'Open Workspace',
-                onClose: function (sAction) {
-                  if (sAction === 'Open Workspace' && sWorkspaceId) {
-                    window.open(
-                      '/poc.sp.hub.requirementworkspace/index.html?workspace=' + sWorkspaceId,
-                      '_blank',
-                    );
+        // requestProperty, not getProperty: FE only $selects the fields its
+        // annotations reference, and workspace_ID is not among them — the
+        // synchronous read returned undefined and logged a drill-down failure,
+        // silently disabling the "Open Workspace" hand-off. requestProperty
+        // fetches the field when it is missing from the cache.
+        return oContext
+          .requestProperty("workspace_ID")
+          .then(function (sWorkspaceId) {
+            return ActionRunner.invoke(oModel, "extractRequirements", {
+              documentId: sDocumentId
+            }).then(function (oResult) {
+              if (oResult.status === "FAILED") {
+                MessageBox.error(oBundle.getText("extractFailedStatus"));
+              } else if (oResult.status === "EXTRACTED") {
+                // Hand off to the Requirement Workspace, deep-linked to this
+                // document's workspace so all its new requirements are in view.
+                MessageBox.success(oBundle.getText("extractSuccess", [oResult.itemsCreated]), {
+                  title: oBundle.getText("extractedTitle"),
+                  actions: [oBundle.getText("openWorkspaceAction"), MessageBox.Action.CLOSE],
+                  emphasizedAction: oBundle.getText("openWorkspaceAction"),
+                  onClose: function (sAction) {
+                    if (sAction === oBundle.getText("openWorkspaceAction") && sWorkspaceId) {
+                      window.open(
+                        "/poc.sp.hub.requirementworkspace/index.html?workspace=" + sWorkspaceId,
+                        "_blank"
+                      );
+                    }
                   }
-                },
-              },
-            );
-          }
-          return oContext.requestRefresh();
-        })
-        .catch(function (oError) {
-          MessageBox.error('Extraction failed: ' + (oError.message || oError));
-        })
-        .finally(function () {
-          oButton.setEnabled(true);
+                });
+              }
+              return oContext.requestRefresh();
+            });
+          })
+          .catch(function (oError) {
+            MessageBox.error(ActionRunner.describeError(oError, oBundle.getText("extractFailed")));
+          });
+      },
+
+      /**
+       * Poll getExtractionStatus until the document leaves EXTRACTING, refreshing
+       * the page context when it settles. The manifest only shows this button
+       * while the document IS in EXTRACTING, so there is no terminal-state
+       * shortcut here any more.
+       */
+      onRefreshStatus: function (oEvent) {
+        var oExtensionAPI = this;
+        var oContext = contextOf(oEvent, oExtensionAPI);
+        var oModel = oContext.getModel();
+        var oBundle = bundleOf(oExtensionAPI);
+        var sDocumentId = oContext.getProperty("ID");
+        var iAttempts = 0;
+
+        stopPolling();
+
+        var fnPoll = function () {
+          iAttempts += 1;
+          ActionRunner.invoke(oModel, "getExtractionStatus", { documentId: sDocumentId })
+            .then(function (oStatus) {
+              if (oStatus.status !== "EXTRACTING" || iAttempts >= POLL_MAX_ATTEMPTS) {
+                stopPolling();
+                return oContext.requestRefresh();
+              }
+              iPollTimer = window.setTimeout(fnPoll, POLL_INTERVAL_MS);
+              return null;
+            })
+            .catch(function (oError) {
+              stopPolling();
+              MessageBox.error(
+                ActionRunner.describeError(oError, oBundle.getText("extractFailed"))
+              );
+            });
+        };
+
+        fnPoll();
+      },
+
+      /**
+       * Opens a dialog to move this document to a different (OPEN) workspace via
+       * IntakeService.changeWorkspace.
+       *
+       * The backend's 409 remains the authoritative gate. The button itself is
+       * now disabled by the manifest's `enabled` expression once the document is
+       * EXTRACTED, which replaced an in-handler MessageBox pre-check that let the
+       * user press a button only to be told they shouldn't have.
+       */
+      onChangeWorkspace: function (oEvent) {
+        var oExtensionAPI = this;
+        var oContext = contextOf(oEvent, oExtensionAPI);
+        var oModel = oContext.getModel();
+        var oBundle = bundleOf(oExtensionAPI);
+        var oI18nModel = oExtensionAPI.getModel("i18n");
+        var oDialog;
+        // Same drill-down caveat as onExtract: workspace_ID is not in FE's
+        // $select, so read it asynchronously. Only used for the same-target
+        // check, which simply doesn't fire if the value is unavailable — the
+        // backend rejects a same-workspace move regardless.
+        var sCurrentWs = null;
+        oContext.requestProperty("workspace_ID").then(function (sId) {
+          sCurrentWs = sId;
         });
-    },
 
-    /**
-     * Opens a dialog to move this document to a different (OPEN) workspace via
-     * IntakeService.changeWorkspace. The backend blocks the move once the document
-     * is EXTRACTED; the button is also disabled in that state, so this is the
-     * pre-extraction affordance.
-     */
-    onChangeWorkspace: function (oEvent) {
-      var oContext = oEvent.getSource().getBindingContext();
-      var oModel = oContext.getModel();
-      var sDocumentId = oContext.getProperty('ID');
-      var sCurrentWs = oContext.getProperty('workspace_ID');
+        var oDialogController = {
+          onCancelChangeWorkspace: function () {
+            oDialog.close();
+          },
 
-      // Guard up front (the button's `enabled` binding isn't reliably applied by
-      // FE for custom-section fragments, so check here too). The backend enforces
-      // this as well — this is just for an immediate, clear message.
-      if (oContext.getProperty('status') === 'EXTRACTED') {
-        MessageBox.information(
-          'This document is already extracted — its requirements live in the current ' +
-            'workspace. Delete them in the Requirement Workspace first, then move the document.',
-        );
-        return;
-      }
-
-      var oSelect = new Select({ width: '100%', forceSelection: false });
-      oSelect.setModel(oModel);
-      oSelect.bindItems({
-        path: '/RequirementWorkspaces',
-        parameters: { $orderby: 'createdAt desc' },
-        filters: [new Filter('status', FilterOperator.EQ, 'OPEN')],
-        template: new Item({ key: '{ID}', text: '{title}' }),
-      });
-
-      var oDialog = new Dialog({
-        title: 'Change Workspace',
-        contentWidth: '26rem',
-        content: [
-          new VBox({
-            items: [
-              new Label({ text: 'Move to workspace', labelFor: oSelect, required: true }),
-              oSelect,
-            ],
-          }).addStyleClass('sapUiSmallMargin'),
-        ],
-        beginButton: new Button({
-          text: 'Move',
-          type: 'Emphasized',
-          press: function () {
+          onConfirmChangeWorkspace: function () {
+            var oSelect = Fragment.byId(CHANGE_WS_FRAGMENT_ID, "changeWorkspaceSelect");
             var sNewWs = oSelect.getSelectedKey();
+
+            // Inline value state rather than a modal: the problem is with this
+            // one field and the user can fix it without dismissing anything.
             if (!sNewWs) {
-              MessageBox.error('Please choose a target workspace.');
+              oSelect.setValueState("Error");
+              oSelect.setValueStateText(oBundle.getText("validationNoWorkspace"));
               return;
             }
             if (sNewWs === sCurrentWs) {
-              MessageBox.information('The document is already in that workspace.');
+              oSelect.setValueState("Error");
+              oSelect.setValueStateText(oBundle.getText("changeWorkspaceSameTarget"));
               return;
             }
+            oSelect.setValueState("None");
             oDialog.close();
-            var oAction = oModel.bindContext('/changeWorkspace(...)');
-            oAction.setParameter('documentId', sDocumentId);
-            oAction.setParameter('newWorkspaceId', sNewWs);
-            oAction
-              .execute()
+
+            ActionRunner.invoke(oModel, "changeWorkspace", {
+              documentId: oContext.getProperty("ID"),
+              newWorkspaceId: sNewWs
+            })
               .then(function () {
-                MessageToast.show('Document moved to the selected workspace.');
+                MessageToast.show(oBundle.getText("changeWorkspaceSuccess"));
                 return oContext.requestRefresh();
               })
               .catch(function (oError) {
-                MessageBox.error('Could not move document: ' + (oError.message || oError));
+                MessageBox.error(
+                  ActionRunner.describeError(oError, oBundle.getText("changeWorkspaceFailed"))
+                );
               });
-          },
-        }),
-        endButton: new Button({
-          text: 'Cancel',
-          press: function () {
-            oDialog.close();
-          },
-        }),
-        afterClose: function () {
-          oDialog.destroy();
-        },
-      });
-      oDialog.setModel(oModel);
-      oDialog.open();
-    },
-  };
+          }
+        };
+
+        return Fragment.load({
+          id: CHANGE_WS_FRAGMENT_ID,
+          name: "poc.sp.hub.intakehub.ext.fragment.ChangeWorkspaceDialog",
+          controller: oDialogController
+        }).then(function (oControl) {
+          oDialog = Array.isArray(oControl) ? oControl[0] : oControl;
+          oDialog.setModel(oModel);
+          oDialog.setModel(oI18nModel, "i18n");
+          oDialog.attachAfterClose(function () {
+            oDialog.destroy();
+          });
+          WorkspacePicker.bindOpenWorkspaces(
+            Fragment.byId(CHANGE_WS_FRAGMENT_ID, "changeWorkspaceSelect")
+          );
+          oDialog.open();
+        });
+      }
+    };
   }
 );

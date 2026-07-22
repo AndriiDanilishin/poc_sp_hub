@@ -94,6 +94,12 @@ annotate service.SourcingProjects with @(
         },
         {
             $Type : 'UI.ReferenceFacet',
+            ID    : 'CommoditiesFacet',
+            Label : 'Commodities',
+            Target: 'commodityCodes/@UI.LineItem',
+        },
+        {
+            $Type : 'UI.ReferenceFacet',
             ID    : 'SuppliersFacet',
             Label : 'Suggested Suppliers',
             Target: 'suggestedSuppliers/@UI.LineItem',
@@ -111,6 +117,7 @@ annotate service.SourcingProjects with {
     title          @title: 'Title';
     description    @title: 'Description'    @UI.MultiLineText;
     category       @title: 'Category';
+    materialGroup  @title: 'Material Group';
     status         @title: 'Status'         @readonly;
     priority       @title: 'Priority';
     timelineStart  @title: 'Timeline Start';
@@ -126,12 +133,16 @@ annotate service.Requirements with @(UI.LineItem: [
     {Value: description, Label: 'Description'},
     {Value: quantity, Label: 'Quantity'},
     {Value: unit, Label: 'Unit'},
+    {Value: materialGroup_code, Label: 'Material Group'},
+    {Value: commodityCode_code, Label: 'Commodity'},
     {Value: aiGenerated, Label: 'AI Generated'},
 ]) {
-    description @title: 'Description';
-    quantity    @title: 'Quantity';
-    unit        @title: 'Unit';
-    aiGenerated @title: 'AI Generated';
+    description   @title: 'Description';
+    quantity      @title: 'Quantity';
+    unit          @title: 'Unit';
+    materialGroup @title: 'Material Group';
+    commodityCode @title: 'Commodity';
+    aiGenerated   @title: 'AI Generated';
 };
 
 annotate service.Risks with @(UI.LineItem: [
@@ -158,10 +169,18 @@ annotate service.SourcingProjectSuppliers with @(UI.LineItem: [
     {Value: confidenceScore, Label: 'Confidence'},
     {Value: aiGenerated, Label: 'AI Generated'},
 ]) {
-    supplier_ID     @title: 'Supplier';
+    supplier        @title: 'Supplier';
     rationale       @title: 'Rationale';
     confidenceScore @title: 'Confidence';
     aiGenerated     @title: 'AI Generated';
+};
+
+annotate service.SourcingProjectCommodities with @(UI.LineItem: [
+    {Value: commodityCode_code, Label: 'Commodity Code'},
+    {Value: aiGenerated, Label: 'AI Generated'},
+]) {
+    commodityCode @title: 'Commodity Code';
+    aiGenerated   @title: 'AI Generated';
 };
 
 annotate service.Attachments with @(UI.LineItem: [

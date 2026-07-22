@@ -141,15 +141,24 @@
               "editableHeaderContent": false,
               "contextPath": "/SourceDocuments",
               "content": {
-                "body": {
-                  "sections": {
-                    "IntakeActionsSection": {
-                      "template": "poc.sp.hub.intakehub.ext.fragment.IntakeActions",
-                      "position": {
-                        "placement": "After",
-                        "anchor": "ContentFacet"
-                      },
-                      "title": "Actions"
+                "header": {
+                  "actions": {
+                    "extractAction": {
+                      "press": "poc.sp.hub.intakehub.ext.fragment.IntakeActions.onExtract",
+                      "text": "{i18n>extractButton}",
+                      "enabled": "{= ${path: 'status', targetType: 'any'} === 'UPLOADED' || ${path: 'status', targetType: 'any'} === 'FAILED' }",
+                      "visible": true
+                    },
+                    "refreshStatusAction": {
+                      "press": "poc.sp.hub.intakehub.ext.fragment.IntakeActions.onRefreshStatus",
+                      "text": "{i18n>refreshStatusButton}",
+                      "visible": "{= ${path: 'status', targetType: 'any'} === 'EXTRACTING' }"
+                    },
+                    "changeWorkspaceAction": {
+                      "press": "poc.sp.hub.intakehub.ext.fragment.IntakeActions.onChangeWorkspace",
+                      "text": "{i18n>changeWorkspaceActionButton}",
+                      "enabled": "{= ${path: 'status', targetType: 'any'} !== 'EXTRACTED' }",
+                      "visible": true
                     }
                   }
                 }

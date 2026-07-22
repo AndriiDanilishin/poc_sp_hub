@@ -57,21 +57,6 @@ sap.ui.define(
                     var n = Number(vScore);
                     return n >= 0.8 ? "Success" : n >= 0.5 ? "Warning" : "Error";
                 },
-                aiStatusState: function (sStatus) {
-                    switch (sStatus) {
-                        case "ACCEPTED":
-                            return "Success";
-                        case "EDITED":
-                            return "Information";
-                        case "REJECTED":
-                            return "Error";
-                        case "PROPOSED":
-                            return "Warning";
-                        default:
-                            return "None";
-                    }
-                },
-
                 // A row blocks promotion when the AI is unsure (confidence < 0.5)
                 // AND no human has reviewed it yet (still PROPOSED) — mirrors the
                 // promoteToSourcingProject gate (§19). The four aiStatus* formatters
@@ -356,11 +341,43 @@ sap.ui.define(
                 });
             },
 
+            // Reduce a server/OData error to one readable line. An upstream AI
+            // provider failure used to arrive here as a raw JSON blob (a bare
+            // OpenAI 500 body) and was shown verbatim in the dialog — noise to a
+            // procurement user, who can only retry. Any embedded JSON payload is
+            // unwrapped to its message, and an AI-provider failure is retitled in
+            // the user's terms: what failed and what to do next.
             _showError: function (oError) {
                 var sMessage =
                     (oError && oError.error && oError.error.message) ||
                     (oError && oError.message) ||
                     String(oError);
+
+                // The server may have embedded a provider payload, e.g.
+                // "OpenAI embed failed: 500 {\"error\":{\"message\":\"...\"}}".
+                var iBrace = sMessage.indexOf("{");
+                if (iBrace > -1) {
+                    try {
+                        var oPayload = JSON.parse(sMessage.slice(iBrace));
+                        var sInner = oPayload && oPayload.error && oPayload.error.message;
+                        if (sInner) {
+                            sMessage = sMessage.slice(0, iBrace).trim() + " " + sInner;
+                        }
+                    } catch (e) {
+                        // Not JSON after the brace — keep the original text.
+                    }
+                }
+
+                if (/OpenAI|embed failed|chat failed/i.test(sMessage)) {
+                    MessageBox.error(
+                        "The AI service is temporarily unavailable, so enrichment could " +
+                            "not complete. Your requirements were not changed — please try " +
+                            "again in a moment.",
+                        { details: sMessage }
+                    );
+                    return;
+                }
+
                 MessageBox.error(sMessage);
             },
 

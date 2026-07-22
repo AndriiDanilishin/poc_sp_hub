@@ -1,7 +1,13 @@
 // Deterministic tabular parsing (§17): CSV/TSV handled dependency-free.
 // Structured cells are parsed as-is; only free-text cells are later normalized by
 // AI (not re-derived) — that AI step lives in enrichment, not here.
-// Binary .xlsx/.xls requires the 'xlsx' package and is not handled yet.
+//
+// Binary .xlsx/.xls is deliberately NOT supported. The obvious library (SheetJS
+// `xlsx`) is abandoned on npm at 0.18.5 with two unfixed high-severity advisories
+// (prototype pollution + ReDoS) whose threat model is exactly ours: parsing
+// user-uploaded files. The maintained build lives only on the vendor's own CDN,
+// outside the npm audit trail. Until a vetted alternative is chosen, users export
+// to CSV — which the dependency-free path below handles safely.
 
 function parseDelimited(raw, delim) {
   const rows = [];
@@ -46,8 +52,9 @@ function parse(input = {}) {
   const fileType = (input.fileType || '').toLowerCase();
   if (fileType === 'xlsx' || fileType === 'xls') {
     throw new Error(
-      `Binary Excel (${fileType}) parsing requires the 'xlsx' package (not installed); ` +
-        'export to CSV or add the dependency (Phase 2, §17)',
+      `Binary Excel (${fileType}) is not supported — please re-save the sheet as CSV ` +
+        'and upload that. (The npm xlsx package is unmaintained with unpatched ' +
+        'high-severity advisories, so it is deliberately not a dependency; §17.)',
     );
   }
 

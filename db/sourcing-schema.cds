@@ -10,7 +10,7 @@ using {
 // -----------------------------------------------------------------------------
 
 entity SourceDocument : cuid, managed {
-    originType : String(10) enum {
+    originType    : String(10) enum {
         Email;
         Pdf;
         Image;
@@ -18,17 +18,25 @@ entity SourceDocument : cuid, managed {
         RestApi;
         Text;
     };
-    fileName   : String(255);
-    fileType   : String(10);
+    fileName      : String(255);
+    fileType      : String(10);
     // Raw text content to parse/extract from (email body, CSV/TSV text, structured
-    // REST payload). Binary formats (PDF bytes, .xlsx, images) aren't stored here
-    // yet — their parsers are still Phase-2 stubs (see srv/ai/document-parsers/);
-    // adding binary storage is deferred until that parsing is real (§17, §21 notes
-    // BTP Object Store for attachments as the eventual home for binary content).
-    content    : LargeString;
-    status     : String(20) default 'UPLOADED'; // UPLOADED, EXTRACTING, EXTRACTED, FAILED
-    errorMsg   : String(1000);
-    workspace  : Association to RequirementWorkspace;
+    // REST payload). Populated when the user pastes text or uploads a text-ish file.
+    content       : LargeString;
+
+    // Raw bytes for binary formats (PDF, .xlsx, images). Uploaded as an OData
+    // media stream (see @Core.MediaType on the IntakeService projection) so the
+    // file never has to be base64-inflated through the action payload.
+    // parseDocument() already accepts a `buffer`, so extraction consumes this
+    // directly (§17). Image OCR remains unimplemented — an Image row stores its
+    // bytes but still fails extraction with an informative Phase-2 message.
+    // §21 notes BTP Object Store as the eventual home for large attachments;
+    // an inline LargeBinary is the right scale for the PoC's 10 MB cap.
+    contentBinary : LargeBinary;
+    fileSize      : Integer;
+    status        : String(20) default 'UPLOADED'; // UPLOADED, EXTRACTING, EXTRACTED, FAILED
+    errorMsg      : String(1000);
+    workspace     : Association to RequirementWorkspace;
 }
 
 // -----------------------------------------------------------------------------
@@ -89,11 +97,17 @@ entity SourcingProject : cuid, managed {
 }
 
 entity Requirement : cuid {
-    project     : Association to SourcingProject @mandatory;
-    description : String(1000);
-    quantity    : Decimal(15, 3);
-    unit        : String(10);
-    aiGenerated : Boolean default false;
+    project       : Association to SourcingProject @mandatory;
+    description   : String(1000);
+    quantity      : Decimal(15, 3);
+    unit          : String(10);
+    // Per-item classification, copied 1:1 from the workspace requirement on promotion.
+    // The SourcingProject also carries a rollup (materialGroup + commodityCodes) as a
+    // summary; these keep each requirement's own codes so distinct items (e.g. lab
+    // instruments vs. PPE) aren't collapsed into one bucket.
+    materialGroup : Association to MaterialGroup;
+    commodityCode : Association to CommodityCode;
+    aiGenerated   : Boolean default false;
 }
 
 entity SourcingProjectCommodity : cuid {
@@ -173,7 +187,7 @@ entity KnowledgeDocument : cuid, managed {
     content   : LargeString;
     // Must match AI_EMBED_DIMENSIONS / the embed model's native size (llm-client.js):
     // text-embedding-3-small → 1536, -large → 3072. Keep these three in sync.
-    embedding : Vector(1536);
+    embedding : Vector(3072);
     sourceRef : String(255);
 }
 

@@ -7,7 +7,8 @@ const CONFIDENCE_REVIEW_THRESHOLD = 0.5;
 module.exports = class WorkspaceService extends cds.ApplicationService {
   async init() {
     const { RequirementWorkspaces, WorkspaceRequirements, RequirementSources } = this.entities;
-    const { SourcingProject, Requirement, MaterialGroup, CommodityCode } = cds.entities('sourcing');
+    const { SourcingProject, Requirement, MaterialGroup, CommodityCode, SourcingProjectCommodity } =
+      cds.entities('sourcing');
     const AuditLog = cds.entities('sourcing').AuditLog;
 
     const writeAudit = (req, entry) =>
@@ -265,6 +266,9 @@ module.exports = class WorkspaceService extends cds.ApplicationService {
       });
 
       // Copy — not reference — so later workspace edits can't alter the project (§20).
+      // Each requirement keeps its OWN material group + commodity code (per-item
+      // classification) so distinct items aren't collapsed. These codes were already
+      // resolved against master data by regenerate, so they're safe to copy directly.
       await INSERT.into(Requirement).entries(
         toCopy.map((i) => ({
           ID: cds.utils.uuid(),
@@ -272,9 +276,50 @@ module.exports = class WorkspaceService extends cds.ApplicationService {
           description: i.normalizedDescription || i.description,
           quantity: i.quantity,
           unit: i.unit,
+          materialGroup_code: i.materialGroup_code || null,
+          commodityCode_code: i.commodityCode_code || null,
           aiGenerated: i.aiStatus === 'ACCEPTED',
         })),
       );
+
+      // Carry the enriched classification (§10) up to the PROJECT level, matching the
+      // domain model: a SourcingProject has one materialGroup + a set of commodityCodes,
+      // not per-requirement. Otherwise the workspace Enrichment (regenerate) is discarded
+      // on promotion and the project shows no Material Group / Commodity.
+      // Material Group: the most common non-null code among the promoted requirements.
+      const mgCounts = new Map();
+      for (const i of toCopy) {
+        if (i.materialGroup_code) {
+          mgCounts.set(i.materialGroup_code, (mgCounts.get(i.materialGroup_code) || 0) + 1);
+        }
+      }
+      let projectMaterialGroup = null;
+      for (const [code, count] of mgCounts) {
+        if (!projectMaterialGroup || count > projectMaterialGroup.count) {
+          projectMaterialGroup = { code, count };
+        }
+      }
+      if (projectMaterialGroup) {
+        await UPDATE(SourcingProject)
+          .set({ materialGroup_code: projectMaterialGroup.code })
+          .where({ ID: projectId });
+      }
+
+      // Commodity codes: one SourcingProjectCommodity per distinct code across the
+      // promoted requirements.
+      const distinctCommodities = [
+        ...new Set(toCopy.map((i) => i.commodityCode_code).filter(Boolean)),
+      ];
+      if (distinctCommodities.length) {
+        await INSERT.into(SourcingProjectCommodity).entries(
+          distinctCommodities.map((code) => ({
+            ID: cds.utils.uuid(),
+            project_ID: projectId,
+            commodityCode_code: code,
+            aiGenerated: true,
+          })),
+        );
+      }
 
       await UPDATE(RequirementWorkspaces)
         .set({ sourcingProject_ID: projectId, status: 'ARCHIVED' })
@@ -284,7 +329,12 @@ module.exports = class WorkspaceService extends cds.ApplicationService {
         entityName: 'SourcingProject',
         entityId: projectId,
         action: 'PROMOTE',
-        after: JSON.stringify({ workspaceId, requirementsCopied: toCopy.length }),
+        after: JSON.stringify({
+          workspaceId,
+          requirementsCopied: toCopy.length,
+          materialGroup: projectMaterialGroup?.code ?? null,
+          commodityCodes: distinctCommodities,
+        }),
       });
 
       return { sourcingProjectId: projectId, requirementsCopied: toCopy.length };

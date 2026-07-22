@@ -4,7 +4,8 @@
   "dependencies": {
     "@cap-js/hana": "^2",
     "@sap/cds": "^9",
-    "@sap/xssec": "^4"
+    "@sap/xssec": "^4",
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
     "@cap-js/sqlite": "^2.4",
@@ -26,6 +27,12 @@
   "private": true,
   "cds": {
     "requires": {
+      "db": {
+        "kind": "sqlite",
+        "credentials": {
+          "url": "db.sqlite"
+        }
+      },
       "auth": {
         "kind": "mocked",
         "users": {
@@ -48,7 +55,11 @@
         }
       },
       "[production]": {
-        "auth": "xsuaa"
+        "auth": "xsuaa",
+        "db": {
+          "kind": "hana",
+          "deploy-format": "hdbtable"
+        }
       }
     }
   },

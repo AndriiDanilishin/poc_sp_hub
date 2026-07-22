@@ -1,0 +1,29 @@
+<core:FragmentDefinition xmlns:core="sap.ui.core" xmlns="sap.m">
+    <Dialog id="changeWorkspaceDialog" title="{i18n>changeWorkspaceDialogTitle}" contentWidth="26rem">
+        <content>
+            <VBox id="changeWorkspaceBox" class="sapUiSmallMargin">
+                <Label
+                    id="changeWorkspaceLabel"
+                    text="{i18n>changeWorkspaceLabel}"
+                    labelFor="changeWorkspaceSelect"
+                    required="true" />
+                <!-- Items are bound in the controller via WorkspacePicker so the
+                     OPEN-only filter lives in one place for both dialogs. -->
+                <Select id="changeWorkspaceSelect" width="100%" forceSelection="false" />
+            </VBox>
+        </content>
+        <beginButton>
+            <Button
+                id="changeWorkspaceConfirmBtn"
+                text="{i18n>changeWorkspaceButton}"
+                type="Emphasized"
+                press="onConfirmChangeWorkspace" />
+        </beginButton>
+        <endButton>
+            <Button
+                id="changeWorkspaceCancelBtn"
+                text="{i18n>cancelButton}"
+                press="onCancelChangeWorkspace" />
+        </endButton>
+    </Dialog>
+</core:FragmentDefinition>

@@ -1,0 +1,34 @@
+<core:FragmentDefinition xmlns:core="sap.ui.core" xmlns="sap.m">
+    <Dialog id="newWorkspaceDialog" title="{i18n>newWorkspaceDialogTitle}" contentWidth="26rem">
+        <content>
+            <VBox id="newWorkspaceBox" class="sapUiSmallMargin">
+                <Label
+                    id="newWorkspaceTitleLabel"
+                    text="{i18n>newWorkspaceTitleLabel}"
+                    labelFor="newWorkspaceTitle"
+                    required="true" />
+                <Input
+                    id="newWorkspaceTitle"
+                    width="100%"
+                    placeholder="{i18n>newWorkspaceTitlePlaceholder}"
+                    liveChange="onNewWorkspaceTitleChange" />
+            </VBox>
+        </content>
+        <beginButton>
+            <!-- Guardrail: a workspace must have a non-empty title, so Create stays
+                 disabled until one is typed (see onNewWorkspaceTitleChange). -->
+            <Button
+                id="newWorkspaceCreateBtn"
+                text="{i18n>newWorkspaceCreateButton}"
+                type="Emphasized"
+                enabled="false"
+                press="onConfirmNewWorkspace" />
+        </beginButton>
+        <endButton>
+            <Button
+                id="newWorkspaceCancelBtn"
+                text="{i18n>cancelButton}"
+                press="onCancelNewWorkspace" />
+        </endButton>
+    </Dialog>
+</core:FragmentDefinition>

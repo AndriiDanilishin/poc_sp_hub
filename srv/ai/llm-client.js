@@ -169,6 +169,72 @@ function synthesize(schema, rand) {
 
 // ---- OpenAI provider (native fetch) -----------------------------------------
 
+// Transient upstream failures that are worth retrying: OpenAI 5xx ("The server had
+// an error while processing your request"), 429 rate limits, and 408 timeouts. A
+// 400/401/403/404 is a request defect — retrying it only wastes time and money.
+const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_MS = 500;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// OpenAI error bodies are JSON ({error:{message}}) but can be HTML from a proxy.
+// Reduce either to one short line: the raw payload used to reach an end-user
+// MessageBox verbatim (a 500's full JSON blob), which is noise, not information.
+function briefUpstreamError(status, body) {
+  let detail;
+  try {
+    detail = JSON.parse(body)?.error?.message || '';
+  } catch {
+    detail = String(body || '').replace(/\s+/g, ' ').trim();
+  }
+  if (detail.length > 200) detail = `${detail.slice(0, 200)}…`;
+  return detail ? `${status} — ${detail}` : `${status}`;
+}
+
+/**
+ * POST to the provider with bounded retries on transient failures.
+ * Retries 5xx/429/408 and network errors with exponential backoff; surfaces a
+ * single-line message on final failure. `label` names the operation for logs.
+ */
+async function openaiFetch(config, path, payload, label) {
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let res;
+    try {
+      res = await fetch(`${config.baseURL}${path}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      // Network-level failure (DNS, connection reset) — same retry policy.
+      lastError = new Error(`OpenAI ${label} failed: ${err.message}`);
+      if (attempt === MAX_ATTEMPTS) break;
+      LOG.warn(`${label} network error (attempt ${attempt}/${MAX_ATTEMPTS}): ${err.message}`);
+      await sleep(RETRY_BASE_MS * 2 ** (attempt - 1));
+      continue;
+    }
+
+    if (res.ok) return res.json();
+
+    const body = await res.text();
+    lastError = new Error(`OpenAI ${label} failed: ${briefUpstreamError(res.status, body)}`);
+    if (!RETRYABLE_STATUS.has(res.status) || attempt === MAX_ATTEMPTS) break;
+    // Honour Retry-After when the provider sends one (429s usually do).
+    const retryAfter = Number(res.headers.get('retry-after'));
+    const delay = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter * 1000
+      : RETRY_BASE_MS * 2 ** (attempt - 1);
+    LOG.warn(`${label} got ${res.status}; retrying in ${delay} ms (${attempt}/${MAX_ATTEMPTS})`);
+    await sleep(delay);
+  }
+  throw lastError;
+}
+
 async function openaiChat(config, { system, user, schema, temperature, maxTokens }) {
   // Two things the model needs for reliable structured output:
   // 1. OpenAI's json_object response_format 400s unless the literal word "json"
@@ -182,13 +248,10 @@ async function openaiChat(config, { system, user, schema, temperature, maxTokens
   } else if (!/\bjson\b/i.test(system)) {
     jsonSystem += '\nRespond with a single valid JSON object.';
   }
-  const res = await fetch(`${config.baseURL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  const data = await openaiFetch(
+    config,
+    '/chat/completions',
+    {
       model: config.chatModel,
       messages: [
         { role: 'system', content: jsonSystem },
@@ -197,32 +260,23 @@ async function openaiChat(config, { system, user, schema, temperature, maxTokens
       temperature,
       max_tokens: maxTokens,
       response_format: { type: 'json_object' },
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`OpenAI chat failed: ${res.status} ${await res.text()}`);
-  }
-  const data = await res.json();
+    },
+    'chat',
+  );
   return data.choices?.[0]?.message?.content ?? '';
 }
 
 async function openaiEmbed(config, text) {
-  const res = await fetch(`${config.baseURL}/embeddings`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  const data = await openaiFetch(
+    config,
+    '/embeddings',
+    {
       model: config.embedModel,
       input: text,
       dimensions: config.embeddingDimensions,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`OpenAI embed failed: ${res.status} ${await res.text()}`);
-  }
-  const data = await res.json();
+    },
+    'embed',
+  );
   return data.data?.[0]?.embedding ?? [];
 }
 

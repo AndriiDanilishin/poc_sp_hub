@@ -32,3 +32,22 @@ http://localhost:4004/document-manager/webapp/index.html
 1. Active NodeJS LTS (Long Term Support) version and associated supported NPM version.  (See https://nodejs.org)
 
 
+
+Adding a new parser — what to do
+Case A: new parser for an existing origin type (e.g. a better .docx handler routed via Excel/Text)
+Just two files:
+
+Create srv/ai/document-parsers/<name>-parser.js exporting parse(input) → { text, segments }.
+Register in index.js — add the require and the PARSERS entry.
+
+Case B: brand-new origin type (e.g. Word, Html)
+Five touch-points — miss any and the upload is rejected before the parser is ever reached:
+
+#	File	Change
+1	srv/ai/document-parsers/<name>-parser.js	create — export parse(input) returning { text, segments: [{text, location}] }; throw an informative Error on unsupported input
+2	srv/ai/document-parsers/index.js:14-28	require it + add to the PARSERS map, keyed by the new originType
+3	db/sourcing-schema.cds:13-19	add the value to the originType enum
+4	srv/intake-service.js:5	add to ALLOWED_ORIGIN_TYPES (the upload gate — this is what actually blocks unknown types with a 400)
+5	UI (optional)	app/intake-hub/webapp/ext/fragment/UploadDialog.fragment.xml — add the option to the origin-type picker so users can select it
+
+
