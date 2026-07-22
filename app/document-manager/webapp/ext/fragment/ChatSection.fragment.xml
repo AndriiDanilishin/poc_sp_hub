@@ -1,5 +1,23 @@
-<core:FragmentDefinition xmlns:core="sap.ui.core" xmlns="sap.m" xmlns:macros="sap.fe.macros">
-	<VBox id="VBox" core:require="{ handler: 'poc/sp/hub/documentmanager/ext/fragment/ChatSection'}">
-		<Button id="Button" text="ChatSection2" press="handler.onPress" />
+<core:FragmentDefinition xmlns:core="sap.ui.core" xmlns="sap.m">
+	<!-- Placeholder section, not a feature. The generator produced a VBox id="VBox"
+	     holding a Button labelled "ChatSection2" whose handler toasted "Custom
+	     handler invoked Hello Alina." — which looked like working functionality.
+	     The MessageStrip below states the truth up front, so the app is honest
+	     without anyone having to press anything. See TASK-UX.md. -->
+	<VBox
+		id="chatSectionBox"
+		class="sapUiSmallMargin"
+		core:require="{ handler: 'poc/sp/hub/documentmanager/ext/fragment/ChatSection'}">
+		<MessageStrip
+			id="chatPlaceholderStrip"
+			text="{i18n>chatPlaceholderStrip}"
+			type="Information"
+			showIcon="true"
+			class="sapUiSmallMarginBottom" />
+		<Button
+			id="chatPlaceholderButton"
+			text="{i18n>chatPlaceholderButton}"
+			icon="sap-icon://discussion"
+			press="handler.onPress" />
 	</VBox>
 </core:FragmentDefinition>

@@ -1,3 +1,28 @@
+> ## ⚠️ This app is a template, not a working feature
+>
+> `document-manager` is **Fiori generator scaffolding**, kept deliberately.
+> `docs/solution-architecture.md` §29 keeps it and `DocumentService` "as the
+> template for the intake pattern (upload → chunk → status) rather than
+> replaced". `CLAUDE.md` calls its `workspace` namespace a Phase 0 baseline,
+> "not yet the target domain".
+>
+> **What is real:** the CDS model (`db/schema.cds`) and the `DocumentService`
+> handlers (`deleteDocument`, `getStatus`, `getDeletePreview`) — all working,
+> but **no UI calls any of them**.
+>
+> **What is not:** the document chat. Its section is a placeholder button. The
+> modules it needs (`srv/lib/embedder.js`, `srv/lib/vector_search.js`) were
+> removed on this branch; the live AI stack (`srv/ai/`) targets the `sourcing`
+> domain instead. The seeded rows are generator noise (`fileName816`,
+> `status479`), and `webapp/test/integration/*.gen.js` is generated scaffolding,
+> not test coverage.
+>
+> **Read `app/intake-hub/` instead.** It was built from this pattern and has
+> since overtaken it — real file upload, media streams, full i18n, shared
+> extension libs, Fiori-compliant Object Page header actions with `enabled`
+> gating. For the current state and the options for this app's future, see
+> [TASK-UX.md](TASK-UX.md).
+
 ## Application Details
 |               |
 | ------------- |

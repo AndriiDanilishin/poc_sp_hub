@@ -151,7 +151,7 @@
                         "placement": "After",
                         "anchor": "GeneratedFacet1"
                       },
-                      "title": "ChatSection"
+                      "title": "{i18n>chatSectionTitle}"
                     }
                   }
                 }
