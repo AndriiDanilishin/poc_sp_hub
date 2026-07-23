@@ -1,6 +1,7 @@
 const cds = require('@sap/cds');
 const llm = require('./llm-client');
 const embedder = require('./embedder');
+const { clamp01, formatContext } = require('./util');
 
 const LOG = cds.log('ai.enrichment');
 
@@ -75,26 +76,6 @@ const ENRICHMENT_SCHEMA = {
     },
   },
 };
-
-function clamp01(n) {
-  const x = Number(n);
-  return Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
-}
-
-function formatContext(groups) {
-  const parts = [];
-  for (const [label, docs] of Object.entries(groups)) {
-    if (!docs.length) {
-      parts.push(`${label}: (no relevant knowledge found)`);
-      continue;
-    }
-    const lines = docs
-      .map((d) => `- [${d.sourceRef || d.ID}] ${d.title}: ${String(d.content || '').slice(0, 200)}`)
-      .join('\n');
-    parts.push(`${label}:\n${lines}`);
-  }
-  return parts.join('\n\n');
-}
 
 // Master-data code shapes we can recognize in free text (§5). UNSPSC commodity codes
 // are 8-digit numbers; material groups look like MG-XXX-NNN. Extend as catalogs grow.

@@ -1,6 +1,49 @@
 {
-  "scopes": [],
+  "xsappname": "poc-sp-hub",
+  "tenant-mode": "dedicated",
+  "oauth2-configuration": {
+    "redirect-uris": [
+      "https://*.hana.ondemand.com/**",
+      "https://*.cfapps.hana.ondemand.com/**"
+    ]
+  },
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.ProcurementRequester",
+      "description": "Create and curate requirements, upload and extract intake documents"
+    },
+    {
+      "name": "$XSAPPNAME.ProcurementManager",
+      "description": "Approve sourcing projects and submit them to SAP S/4HANA"
+    },
+    {
+      "name": "$XSAPPNAME.KnowledgeCurator",
+      "description": "Curate the RAG knowledge corpus"
+    }
+  ],
   "attributes": [],
-  "role-templates": [],
+  "role-templates": [
+    {
+      "name": "ProcurementRequester",
+      "description": "Procurement requester",
+      "scope-references": [
+        "$XSAPPNAME.ProcurementRequester"
+      ]
+    },
+    {
+      "name": "ProcurementManager",
+      "description": "Procurement manager (approver)",
+      "scope-references": [
+        "$XSAPPNAME.ProcurementManager"
+      ]
+    },
+    {
+      "name": "KnowledgeCurator",
+      "description": "Knowledge corpus curator",
+      "scope-references": [
+        "$XSAPPNAME.KnowledgeCurator"
+      ]
+    }
+  ],
   "authorities-inheritance": false
 }

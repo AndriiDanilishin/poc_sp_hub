@@ -391,6 +391,20 @@ Content-Type: application/json
 ### Capture new workspace id
 @smokeWs = {{newWs.response.body.ID}}
 
+### Detect duplicate requirement groups in a workspace (read-only analysis)
+POST {{host}}/api/workspace/detectDuplicates
+{{requester}}
+Content-Type: application/json
+
+{ "workspaceId": "{{wsSeeded}}" }
+
+### Detect duplicates: unknown workspace -> expect 404
+POST {{host}}/api/workspace/detectDuplicates
+{{requester}}
+Content-Type: application/json
+
+{ "workspaceId": "00000000-0000-4000-8000-000000000000" }
+
 ### Split a requirement (duplicates it)
 POST {{host}}/api/workspace/split
 {{requester}}
@@ -569,6 +583,43 @@ POST {{host}}/api/sourcing/SourcingProjects({{projApproved}})/SourcingProjectSer
 Content-Type: application/json
 
 {}
+
+# --- Authorization gates (Phase 1.1) -----------------------------------------
+# approve / submitToS4 are the sign-off + S/4HANA gate: only ProcurementManager
+# may call them. A plain ProcurementRequester (or anonymous caller) must be
+# refused BEFORE the business logic runs. These document that the role gate holds.
+
+### AuthZ: approve as a requester (wrong role) -> expect 403
+POST {{host}}/api/sourcing/SourcingProjects({{projApproved}})/SourcingProjectService.approve
+{{requester}}
+Content-Type: application/json
+
+{}
+
+### AuthZ: approve with no credentials -> expect 401
+POST {{host}}/api/sourcing/SourcingProjects({{projApproved}})/SourcingProjectService.approve
+Content-Type: application/json
+
+{}
+
+### AuthZ: submitToS4 as a requester (wrong role) -> expect 403
+POST {{host}}/api/sourcing/SourcingProjects({{projApproved}})/SourcingProjectService.submitToS4
+{{requester}}
+Content-Type: application/json
+
+{}
+
+### AuthZ: workspace curation (regenerate) with no credentials -> expect 401
+POST {{host}}/api/workspace/regenerate
+Content-Type: application/json
+
+{ "id": "{{reqAccepted}}" }
+
+### AuthZ: intake reads require a login -> expect 401
+GET {{host}}/api/intake/SourceDocuments
+
+### AuthZ: sourcing reads require a login -> expect 401
+GET {{host}}/api/sourcing/SourcingProjects
 
 # --- Approval freeze (§20, §25) ----------------------------------------------
 # The action gates gate the *transitions*; these gate the *data*. Before the

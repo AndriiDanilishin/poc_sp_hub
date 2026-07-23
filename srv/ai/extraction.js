@@ -1,5 +1,6 @@
 const cds = require('@sap/cds');
 const llm = require('./llm-client');
+const { clamp01, toIsoDateOrNull } = require('./util');
 
 const LOG = cds.log('ai.extraction');
 
@@ -45,25 +46,6 @@ const EXTRACTION_SCHEMA = {
     },
   },
 };
-
-function clamp01(n) {
-  const x = Number(n);
-  return Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
-}
-
-// Strict: JS `new Date()` leniently accepts junk like "mock-42" (→ year 2041),
-// so require an ISO leading date and sanity-check the year before trusting it.
-function toIsoDateOrNull(value) {
-  if (!value) return null;
-  const str =
-    value instanceof Date ? value.toISOString() : typeof value === 'string' ? value.trim() : '';
-  if (!/^\d{4}-\d{2}-\d{2}/.test(str)) return null;
-  const d = new Date(str);
-  if (Number.isNaN(d.getTime())) return null;
-  const year = d.getUTCFullYear();
-  if (year < 1970 || year > 2100) return null;
-  return d.toISOString().slice(0, 10);
-}
 
 // LLMs sometimes emit the literal string "null"/"none"/"n/a" instead of a JSON
 // null for an absent value — normalize those to a real null.

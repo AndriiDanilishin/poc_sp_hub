@@ -40,6 +40,27 @@ const cds = require('@sap/cds');
 // schedules the work; embedding is a background convenience, never a startup gate.
 const AUTO_EMBED_TIMEOUT_MS = 60_000;
 
+// Append-only AuditLog (§25, Phase 1.4). The entity is not exposed over OData today,
+// but this is defense in depth: on every served service, reject any UPDATE or DELETE
+// that targets the sourcing.AuditLog entity, so the audit trail can only ever be
+// appended to — never rewritten or erased — even if a future projection exposes it.
+cds.on('served', () => {
+  for (const srv of cds.services) {
+    if (!(srv instanceof cds.ApplicationService)) continue;
+    for (const entity of srv.entities) {
+      // Match the underlying persistence entity by name, regardless of projection alias.
+      if (
+        entity.name?.endsWith('AuditLog') ||
+        entity['@sap.persistence.name'] === 'sourcing.AuditLog'
+      ) {
+        srv.before(['UPDATE', 'DELETE'], entity, (req) =>
+          req.reject(405, 'AuditLog is append-only and cannot be modified or deleted.'),
+        );
+      }
+    }
+  }
+});
+
 cds.once('served', () => {
   const log = cds.log('knowledge');
 

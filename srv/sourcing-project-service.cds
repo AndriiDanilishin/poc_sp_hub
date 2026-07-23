@@ -1,6 +1,6 @@
 using {sourcing as db} from '../db/sourcing-schema';
 
-service SourcingProjectService @(path: '/api/sourcing') {
+service SourcingProjectService @(path: '/api/sourcing', requires: 'authenticated-user') {
 
     entity SourcingProjects           as
         projection on db.SourcingProject {
@@ -25,11 +25,16 @@ service SourcingProjectService @(path: '/api/sourcing') {
             action generateDraft() returns SourcingProjects;
 
             // Procurement Manager signs off; DRAFT -> APPROVED. Human-only, no AI.
+            // Role-gated: this is the sign-off that gates S/4HANA submission — only a
+            // ProcurementManager may approve (a plain authenticated requester cannot).
+            @(requires: 'ProcurementManager')
             @Common.SideEffects: {TargetProperties: ['_it/status']}
             @Core.OperationAvailable: {$edmJson: {$Eq: [{$Path: 'in/status'}, 'DRAFT']}}
             action approve()       returns SourcingProjects;
 
             // Create the Purchase Requisition in SAP S/4HANA Cloud (Phase 5).
+            // Role-gated: only a ProcurementManager may push an approved project to S/4HANA.
+            @(requires: 'ProcurementManager')
             @Common.SideEffects: {TargetProperties: ['_it/status']}
             @Core.OperationAvailable: {$edmJson: {$Eq: [{$Path: 'in/status'}, 'APPROVED']}}
             action submitToS4()    returns {

@@ -1,18 +1,13 @@
 const cds = require('@sap/cds');
 const { draftSourcingProject } = require('./ai/project-drafting');
+const { makeAuditWriter } = require('./lib/audit');
 
 module.exports = class SourcingProjectService extends cds.ApplicationService {
   async init() {
     const { SourcingProjects, Requirements, Risks, SourcingProjectSuppliers } = this.entities;
     const { AuditLog, Supplier } = cds.entities('sourcing');
 
-    const writeAudit = (req, entry) =>
-      INSERT.into(AuditLog).entries({
-        ID: cds.utils.uuid(),
-        actor: req.user?.id,
-        aiInvolved: false,
-        ...entry,
-      });
+    const writeAudit = makeAuditWriter(AuditLog);
 
     // Bound actions carry the target instance's key in req.params (last path segment)
     // rather than as an action parameter.

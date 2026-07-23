@@ -24,8 +24,7 @@ const MODEL_EMBED_DIMS = {
 
 function loadConfig(overrides = {}) {
   const env = cds.env.ai || {};
-  const embedModel =
-    process.env.AI_EMBED_MODEL || env.embedModel || 'text-embedding-3-large';
+  const embedModel = process.env.AI_EMBED_MODEL || env.embedModel || 'text-embedding-3-large';
   return {
     provider: process.env.AI_PROVIDER || env.provider || 'mock',
     chatModel: process.env.AI_CHAT_MODEL || env.chatModel || 'gpt-4o-mini',
@@ -45,7 +44,53 @@ function loadConfig(overrides = {}) {
     maxInputChars: Number(env.maxInputChars) || 48000,
     apiKey: process.env.OPENAI_API_KEY || env.apiKey,
     baseURL: process.env.OPENAI_BASE_URL || env.baseURL || 'https://api.openai.com/v1',
+    // BTP destination name, used when provider === 'destination' (CF).
+    destinationName: process.env.AI_DESTINATION_NAME || env.destinationName || 'GenAIHub',
+    // PII redaction (§Phase 1.3). When enabled, user/document text is scrubbed of
+    // obvious PII BEFORE it leaves the process for an external provider. Off by
+    // default so existing behaviour is unchanged; enable via AI_REDACT_PII=true or
+    // cds.env.ai.redactPii. The redactor is intentionally a conservative seam, not a
+    // full DLP engine — the real data-residency answer is the BTP `destination`
+    // provider (SAP Generative AI Hub), where the data never leaves BTP at all.
+    redactPii:
+      String(process.env.AI_REDACT_PII ?? env.redactPii ?? 'false').toLowerCase() === 'true',
     ...overrides,
+  };
+}
+
+// ---- PII redaction seam (§Phase 1.3) ----------------------------------------
+
+// Conservative, dependency-free redaction of the most common direct identifiers.
+// Deliberately narrow: over-redaction would strip the procurement content the LLM
+// needs (quantities, product names). Extend per data-classification policy.
+// ORDER MATTERS: the phone pattern is greedy over digit runs, so the more specific
+// identifiers (email, IBAN, card) must run BEFORE it or their digits get eaten and
+// mislabelled [PHONE] (caught by a unit test). Email first (its digits aren't phones),
+// then the structured IBAN/card, then the catch-all phone.
+const PII_PATTERNS = [
+  [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[EMAIL]'],
+  // IBAN (2 letters + 2 check digits + up to 30 alphanumerics).
+  [/\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b/g, '[IBAN]'],
+  // Credit-card-like 13–16 digit runs (optionally grouped).
+  [/\b(?:\d[ -]?){13,16}\b/g, '[CARD]'],
+  // International-ish phone numbers (7+ digits with separators), avoiding bare qty.
+  [/(?:(?:\+|00)\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?){2,4}\d{2,4}/g, '[PHONE]'],
+];
+
+function redactPii(text) {
+  let out = String(text ?? '');
+  for (const [re, repl] of PII_PATTERNS) out = out.replace(re, repl);
+  return out;
+}
+
+// Sum two OpenAI usage objects (for accumulating across a retry). Either may be null.
+function addUsage(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    prompt_tokens: (a.prompt_tokens || 0) + (b.prompt_tokens || 0),
+    completion_tokens: (a.completion_tokens || 0) + (b.completion_tokens || 0),
+    total_tokens: (a.total_tokens || 0) + (b.total_tokens || 0),
   };
 }
 
@@ -186,7 +231,9 @@ function briefUpstreamError(status, body) {
   try {
     detail = JSON.parse(body)?.error?.message || '';
   } catch {
-    detail = String(body || '').replace(/\s+/g, ' ').trim();
+    detail = String(body || '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
   if (detail.length > 200) detail = `${detail.slice(0, 200)}…`;
   return detail ? `${status} — ${detail}` : `${status}`;
@@ -226,9 +273,10 @@ async function openaiFetch(config, path, payload, label) {
     if (!RETRYABLE_STATUS.has(res.status) || attempt === MAX_ATTEMPTS) break;
     // Honour Retry-After when the provider sends one (429s usually do).
     const retryAfter = Number(res.headers.get('retry-after'));
-    const delay = Number.isFinite(retryAfter) && retryAfter > 0
-      ? retryAfter * 1000
-      : RETRY_BASE_MS * 2 ** (attempt - 1);
+    const delay =
+      Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : RETRY_BASE_MS * 2 ** (attempt - 1);
     LOG.warn(`${label} got ${res.status}; retrying in ${delay} ms (${attempt}/${MAX_ATTEMPTS})`);
     await sleep(delay);
   }
@@ -263,7 +311,14 @@ async function openaiChat(config, { system, user, schema, temperature, maxTokens
     },
     'chat',
   );
-  return data.choices?.[0]?.message?.content ?? '';
+  // Return usage alongside content for AI observability (Phase 3.2). OpenAI reports
+  // prompt/completion/total tokens per call; the adapter logs them so token spend is
+  // visible instead of silently discarded.
+  return {
+    content: data.choices?.[0]?.message?.content ?? '',
+    usage: data.usage || null,
+    model: data.model || config.chatModel,
+  };
 }
 
 async function openaiEmbed(config, text) {
@@ -280,6 +335,49 @@ async function openaiEmbed(config, text) {
   return data.data?.[0]?.embedding ?? [];
 }
 
+// ---- BTP Destination provider (§Phase 1.3 / CF deploy) ----------------------
+//
+// On Cloud Foundry the LLM endpoint + credentials come from a BTP Destination, not
+// from env — so no key is baked into the deployment. The destination is expected to
+// point at an OpenAI-COMPATIBLE endpoint (SAP Generative AI Hub's OpenAI route, Azure
+// OpenAI, or a proxy), so once resolved to { baseURL, apiKey } we reuse the exact same
+// request path as the openai provider. @sap-cloud-sdk is required lazily: it is only
+// needed on CF, so local mock dev doesn't need the dependency installed.
+//
+// Destination properties consumed:
+//   URL                              -> baseURL (the OpenAI-compatible base, incl. /v1)
+//   Authentication: NoAuthentication + a token in `Authorization`/`apiKey` prop, OR
+//   the SDK-injected auth header (OAuth2ClientCredentials etc.) — we pass through
+//   whatever authTokens/headers the SDK resolves.
+let _destinationCache = null;
+
+async function resolveDestination(config) {
+  if (_destinationCache) return _destinationCache;
+  let getDestination;
+  try {
+    ({ getDestination } = require('@sap-cloud-sdk/connectivity'));
+  } catch {
+    throw new Error(
+      "AI_PROVIDER=destination requires '@sap-cloud-sdk/connectivity' (installed on CF). " +
+        'Install it, or use AI_PROVIDER=openai/mock locally.',
+    );
+  }
+  const name = config.destinationName;
+  if (!name) throw new Error('AI destination provider needs AI_DESTINATION_NAME');
+  const dest = await getDestination({ destinationName: name });
+  if (!dest) throw new Error(`BTP destination "${name}" not found`);
+
+  // Token: prefer an SDK-resolved auth token, else an explicit property on the destination.
+  const token =
+    dest.authTokens?.[0]?.value ||
+    dest.originalProperties?.apiKey ||
+    dest.originalProperties?.Authorization ||
+    config.apiKey;
+  const baseURL = (dest.url || config.baseURL).replace(/\/+$/, '');
+  _destinationCache = { baseURL, apiKey: token, authHeader: dest.authTokens?.[0]?.http_header };
+  return _destinationCache;
+}
+
 // ---- adapter ----------------------------------------------------------------
 
 class LLMClient {
@@ -287,6 +385,11 @@ class LLMClient {
     this.config = loadConfig(overrides);
     if (this.config.provider === 'openai' && !this.config.apiKey) {
       LOG.warn('OpenAI provider selected but no API key configured; calls will fail.');
+    }
+    if (this.config.provider === 'destination') {
+      LOG.info(
+        `AI provider=destination name=${this.config.destinationName} (resolved at call time)`,
+      );
     }
   }
 
@@ -309,14 +412,34 @@ class LLMClient {
     return Math.min(requested || cap, cap);
   }
 
+  // Scrub PII from outbound content when enabled and the provider is external.
+  // The mock provider is in-process, so redaction is skipped there (nothing leaves).
+  _maybeRedact(text) {
+    if (!this.config.redactPii || this.config.provider === 'mock') return text;
+    return redactPii(text);
+  }
+
+  // Resolve the effective request config for an HTTP provider. For 'openai' that is
+  // config as-is; for 'destination' the baseURL + apiKey are pulled from the BTP
+  // destination at call time (cached). Both then use the same OpenAI-compatible path.
+  async _httpConfig() {
+    if (this.config.provider === 'destination') {
+      const d = await resolveDestination(this.config);
+      return { ...this.config, baseURL: d.baseURL, apiKey: d.apiKey };
+    }
+    return this.config;
+  }
+
   async embed(text) {
     this._guardInput(text);
+    text = this._maybeRedact(text);
     if (this.config.provider === 'mock') {
       return mockEmbed(text, this.config.embeddingDimensions);
     }
-    if (this.config.provider === 'openai') {
-      if (!this.config.apiKey) throw new Error('OpenAI API key is not configured');
-      return openaiEmbed(this.config, text);
+    if (this.config.provider === 'openai' || this.config.provider === 'destination') {
+      const cfg = await this._httpConfig();
+      if (!cfg.apiKey) throw new Error(`${this.config.provider} embed: no credential resolved`);
+      return openaiEmbed(cfg, text);
     }
     throw new Error(`Unknown AI provider: ${this.config.provider}`);
   }
@@ -325,43 +448,71 @@ class LLMClient {
   // On invalid/unparseable JSON, retries once with a stricter instruction (§16).
   async chat({ system, user, schema, temperature = 0.2, maxTokens }) {
     this._guardInput(user);
+    // Redact only the user content (document/requirement text) — never the system
+    // prompt or schema, which carry no PII and whose field names must stay intact.
+    user = this._maybeRedact(user);
     const cap = this._capTokens(maxTokens);
     const started = Date.now();
 
+    // Resolve the HTTP config once (destination lookup is cached) so both the initial
+    // call and the single retry reuse it.
+    const httpCfg = this.config.provider === 'mock' ? this.config : await this._httpConfig();
+
+    // Always resolve to { raw, usage, model } so token accounting works uniformly.
     const call = (sys, temp) => {
       if (this.config.provider === 'mock') {
         const rand = prng(hashSeed(`${sys}\n${user}`));
-        return Promise.resolve(JSON.stringify(synthesize(schema, rand)));
+        return Promise.resolve({ raw: JSON.stringify(synthesize(schema, rand)), usage: null });
       }
-      if (this.config.provider === 'openai') {
-        if (!this.config.apiKey) throw new Error('OpenAI API key is not configured');
-        return openaiChat(this.config, { system: sys, user, schema, temperature: temp, maxTokens: cap });
+      if (this.config.provider === 'openai' || this.config.provider === 'destination') {
+        if (!httpCfg.apiKey) {
+          throw new Error(`${this.config.provider} chat: no credential resolved`);
+        }
+        return openaiChat(httpCfg, {
+          system: sys,
+          user,
+          schema,
+          temperature: temp,
+          maxTokens: cap,
+        }).then((r) => ({ raw: r.content, usage: r.usage, model: r.model }));
       }
       throw new Error(`Unknown AI provider: ${this.config.provider}`);
     };
 
-    const parseAndCheck = (raw) => {
+    const parseAndCheck = ({ raw, usage, model }) => {
       let obj;
       try {
         obj = JSON.parse(raw);
       } catch {
-        return { ok: false, errors: ['response was not valid JSON'] };
+        return { ok: false, errors: ['response was not valid JSON'], usage, model };
       }
       const v = validate(schema, obj);
-      return { ok: v.ok, errors: v.errors, obj };
+      return { ok: v.ok, errors: v.errors, obj, usage, model };
     };
 
+    let attempts = 1;
     let result = parseAndCheck(await call(system, temperature));
     if (!result.ok) {
       LOG.warn(`LLM output invalid (${result.errors.join('; ')}); retrying once`);
       const stricter = `${system}\n\nRespond with ONLY valid minified JSON matching the required schema. No prose.`;
-      result = parseAndCheck(await call(stricter, 0));
+      attempts = 2;
+      const retry = parseAndCheck(await call(stricter, 0));
+      // Accumulate token usage across the retry so the log reflects true spend.
+      result = { ...retry, usage: addUsage(result.usage, retry.usage) };
       if (!result.ok) {
         throw new Error(`LLM returned invalid output after retry: ${result.errors.join('; ')}`);
       }
     }
 
-    LOG.info(`chat ok provider=${this.config.provider} ms=${Date.now() - started}`);
+    // AI observability (Phase 3.2): provider, model, latency, attempts, token usage.
+    const u = result.usage;
+    const tokens = u
+      ? ` prompt_tokens=${u.prompt_tokens ?? '?'} completion_tokens=${u.completion_tokens ?? '?'} total_tokens=${u.total_tokens ?? '?'}`
+      : '';
+    LOG.info(
+      `chat ok provider=${this.config.provider} model=${result.model || this.config.chatModel} ` +
+        `ms=${Date.now() - started} attempts=${attempts}${tokens}`,
+    );
     return result.obj;
   }
 }
@@ -369,3 +520,4 @@ class LLMClient {
 module.exports = new LLMClient();
 module.exports.LLMClient = LLMClient;
 module.exports.validate = validate;
+module.exports.redactPii = redactPii;

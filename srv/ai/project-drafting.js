@@ -1,6 +1,7 @@
 const cds = require('@sap/cds');
 const llm = require('./llm-client');
 const embedder = require('./embedder');
+const { clamp01, toIsoDateOrNull, formatContext } = require('./util');
 
 const LOG = cds.log('ai.drafting');
 
@@ -72,40 +73,6 @@ const DRAFT_SCHEMA = {
     },
   },
 };
-
-function clamp01(n) {
-  const x = Number(n);
-  return Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
-}
-
-// Strict: JS `new Date()` leniently accepts junk like "mock-42" (→ year 2041),
-// so require an ISO leading date and sanity-check the year before trusting it.
-function toIsoDateOrNull(value) {
-  if (!value) return null;
-  const str =
-    value instanceof Date ? value.toISOString() : typeof value === 'string' ? value.trim() : '';
-  if (!/^\d{4}-\d{2}-\d{2}/.test(str)) return null;
-  const d = new Date(str);
-  if (Number.isNaN(d.getTime())) return null;
-  const year = d.getUTCFullYear();
-  if (year < 1970 || year > 2100) return null;
-  return d.toISOString().slice(0, 10);
-}
-
-function formatContext(groups) {
-  const parts = [];
-  for (const [label, docs] of Object.entries(groups)) {
-    if (!docs.length) {
-      parts.push(`${label}: (no relevant knowledge found)`);
-      continue;
-    }
-    const lines = docs
-      .map((d) => `- [${d.sourceRef || d.ID}] ${d.title}: ${String(d.content || '').slice(0, 200)}`)
-      .join('\n');
-    parts.push(`${label}:\n${lines}`);
-  }
-  return parts.join('\n\n');
-}
 
 function summarizeRequirements(requirements) {
   return requirements

@@ -1,6 +1,6 @@
 using {sourcing as db} from '../db/sourcing-schema';
 
-service IntakeService @(path: '/api/intake') {
+service IntakeService @(path: '/api/intake', requires: 'authenticated-user') {
 
     // Creation must go through uploadDocument() so its validation (allowed
     // originType, workspace existence, size cap) can't be bypassed by a raw POST
@@ -16,8 +16,13 @@ service IntakeService @(path: '/api/intake') {
     // Uploading bytes this way keeps them inside CAP's auth/CSRF handling (no
     // custom Express route) and avoids the ~33% inflation of base64-ing the file
     // through the action payload.
+    // READ open to any authenticated user; UPDATE (the media-stream PUT of
+    // contentBinary, narrowed further by the before-UPDATE handler) requires the
+    // ProcurementRequester role. CREATE/DELETE remain denied — creation goes through
+    // uploadDocument().
     @restrict: [
-        {grant: ['READ', 'UPDATE']}
+        {grant: 'READ'},
+        {grant: 'UPDATE', to: 'ProcurementRequester'}
     ]
     entity SourceDocuments as
         projection on db.SourceDocument {
@@ -50,6 +55,7 @@ service IntakeService @(path: '/api/intake') {
 
     // Create a new (OPEN) workspace so the user can add one without leaving the
     // Intake Hub. New workspaces are always OPEN — only promotion archives them.
+    @(requires: 'ProcurementRequester')
     action   createWorkspace(title: String)                                         returns RequirementWorkspaces;
 
     // Uploads a document into a Requirement Workspace. `content` carries raw text
@@ -58,13 +64,16 @@ service IntakeService @(path: '/api/intake') {
     // .../SourceDocuments(<id>)/contentBinary — see the media stream above.
     // Image OCR is still unimplemented, so an Image row stores bytes but cannot
     // extract yet (§17).
+    @(requires: 'ProcurementRequester')
     action   uploadDocument(workspaceId: UUID, originType: String, fileName: String, fileType: String, content: LargeString, fileSize: Integer) returns SourceDocuments;
 
     // Move a document to a different workspace. Allowed only before extraction —
     // once EXTRACTED, the document's WorkspaceRequirement rows already live in the
     // old workspace, so moving just the document would orphan them (§18).
+    @(requires: 'ProcurementRequester')
     action   changeWorkspace(documentId: UUID, newWorkspaceId: UUID)               returns SourceDocuments;
 
+    @(requires: 'ProcurementRequester')
     action   extractRequirements(documentId: UUID)                                  returns {
         status      : String;
         itemsCreated: Integer;

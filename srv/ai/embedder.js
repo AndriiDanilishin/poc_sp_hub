@@ -15,6 +15,23 @@ const LOG = cds.log('ai.embedder');
 
 const MAX_EMBED_CHARS = 8000;
 
+// RAG relevance floor (Phase 4.1). Without one, search() returned the top-K even when
+// every candidate was irrelevant, so enrichment/drafting grounded on garbage. The
+// floor is provider-aware: the mock provider's embeddings are random unit vectors
+// whose cosine scores sit near 0, so a real floor there would (correctly) return
+// nothing and break offline/CI RAG — hence default 0 for mock. Real providers get a
+// modest 0.15 default. Override with AI_RAG_MIN_SCORE / cds.env.ai.ragMinScore.
+function defaultMinScore() {
+  const env = cds.env.ai || {};
+  const explicit = process.env.AI_RAG_MIN_SCORE ?? env.ragMinScore;
+  if (explicit !== undefined && explicit !== null && explicit !== '') {
+    const n = Number(explicit);
+    if (Number.isFinite(n)) return n;
+  }
+  const provider = process.env.AI_PROVIDER || env.provider || 'mock';
+  return provider === 'mock' ? 0 : 0.15;
+}
+
 // Normalize a stored embedding (JSON string on sqlite, array elsewhere) to number[].
 function toVector(raw) {
   if (Array.isArray(raw)) return raw;
@@ -92,7 +109,9 @@ function rankBySimilarity(queryVector, docs, { topK = 5, minScore = -Infinity } 
  * RAG retrieval primitive (§15): embed the query, return the most similar curated
  * documents. Used by enrichment/drafting to ground AI recommendations.
  */
-async function search(queryText, { category, topK = 5, minScore = -Infinity } = {}) {
+async function search(queryText, { category, topK = 5, minScore } = {}) {
+  // Apply the provider-aware relevance floor when the caller doesn't specify one.
+  const floor = minScore === undefined ? defaultMinScore() : minScore;
   const { KnowledgeDocument } = cds.entities('sourcing');
   const queryVector = await embed(queryText);
 
@@ -108,7 +127,7 @@ async function search(queryText, { category, topK = 5, minScore = -Infinity } = 
   const rows = await query;
 
   const candidates = rows.filter((r) => toVector(r.embedding));
-  return rankBySimilarity(queryVector, candidates, { topK, minScore }).map((r) => {
+  return rankBySimilarity(queryVector, candidates, { topK, minScore: floor }).map((r) => {
     const result = { ...r.doc, score: r.score };
     delete result.embedding;
     return result;
@@ -124,4 +143,5 @@ module.exports = {
   toVector,
   rankBySimilarity,
   embeddableText,
+  defaultMinScore,
 };

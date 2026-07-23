@@ -193,8 +193,17 @@ entity KnowledgeDocument : cuid, managed {
 
 // -----------------------------------------------------------------------------
 // Audit trail - append-only
+//
+// @cds.persistence.journal-style immutability is enforced two ways: this entity is
+// never exposed over OData (written only internally via cds.entities), and a global
+// before('UPDATE'/'DELETE') guard in srv/server.js rejects any mutation of an
+// AuditLog row on every service — so the record of what happened can be appended to
+// but never rewritten or erased, which is the whole point of an audit trail (§25).
+// @insertonly documents the intent and blocks the generic CRUD provider should the
+// entity ever be projected into a service.
 // -----------------------------------------------------------------------------
 
+@insertonly
 entity AuditLog : cuid {
     entityName : String(60);
     entityId   : UUID;

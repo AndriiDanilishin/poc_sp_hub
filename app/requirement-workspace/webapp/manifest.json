@@ -1,5 +1,9 @@
 {
   "_version": "1.86.0",
+  "sap.cloud": {
+    "service": "poc.sp.hub",
+    "public": true
+  },
   "sap.app": {
     "id": "poc.sp.hub.requirementworkspace",
     "type": "application",

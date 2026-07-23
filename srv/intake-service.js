@@ -1,6 +1,7 @@
 const cds = require('@sap/cds');
 const { parseDocument } = require('./ai/document-parsers');
 const { extractRequirements: aiExtractRequirements } = require('./ai/extraction');
+const { makeAuditWriter } = require('./lib/audit');
 
 const ALLOWED_ORIGIN_TYPES = ['Email', 'Pdf', 'Image', 'Excel', 'RestApi', 'Text'];
 
@@ -15,13 +16,7 @@ module.exports = class IntakeService extends cds.ApplicationService {
     const { RequirementWorkspace, WorkspaceRequirement, RequirementSource, AuditLog } =
       cds.entities('sourcing');
 
-    const writeAudit = (req, entry) =>
-      INSERT.into(AuditLog).entries({
-        ID: cds.utils.uuid(),
-        actor: req.user?.id,
-        aiInvolved: false,
-        ...entry,
-      });
+    const writeAudit = makeAuditWriter(AuditLog);
 
     // Read a document's uploaded bytes as a Buffer, or null when none were
     // uploaded. A LargeBinary column does not read back uniformly: CAP streams

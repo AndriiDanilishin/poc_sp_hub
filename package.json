@@ -2,9 +2,12 @@
   "name": "poc_sp_hub",
   "version": "1.0.0",
   "dependencies": {
-    "@cap-js/hana": "^2",
+    "@cap-js/hana": "^3",
+    "@sap-cloud-sdk/connectivity": "^3",
+    "@sap-cloud-sdk/http-client": "^3",
     "@sap/cds": "^9",
     "@sap/xssec": "^4",
+    "mbt": "^1.2.49",
     "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
@@ -15,11 +18,15 @@
   },
   "scripts": {
     "start": "cds-serve",
+    "build:cf": "cds build --production",
+    "mta:build": "npx mbt build",
+    "cf:deploy": "cf deploy mta_archives/poc-sp-hub_1.0.0.mtar",
     "watch-document-manager": "cds watch --open poc.sp.hub.documentmanager/index.html?sap-ui-xx-viewCache=false --livereload false",
     "watch-intake-hub": "cds watch --open poc.sp.hub.intakehub/index.html?sap-ui-xx-viewCache=false --livereload false",
     "watch-sourcing-project": "cds watch --open poc.sp.hub.sourcingproject/index.html?sap-ui-xx-viewCache=false --livereload false",
     "watch-requirement-workspace": "cds watch --open poc.sp.hub.requirementworkspace/index.html?sap-ui-xx-viewCache=false --livereload false",
     "test": "node test/run-http.js",
+    "test:unit": "node --test \"test/unit/*.test.js\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -35,23 +42,28 @@
         }
       },
       "auth": {
-        "kind": "mocked",
-        "users": {
-          "curator": {
-            "roles": [
-              "KnowledgeCurator"
-            ]
-          },
-          "requester": {
-            "roles": [
-              "ProcurementRequester"
-            ]
-          },
-          "manager": {
-            "roles": [
-              "ProcurementRequester",
-              "ProcurementManager"
-            ]
+        "kind": "dummy"
+      },
+      "[mocked]": {
+        "auth": {
+          "kind": "mocked",
+          "users": {
+            "curator": {
+              "roles": [
+                "KnowledgeCurator"
+              ]
+            },
+            "requester": {
+              "roles": [
+                "ProcurementRequester"
+              ]
+            },
+            "manager": {
+              "roles": [
+                "ProcurementRequester",
+                "ProcurementManager"
+              ]
+            }
           }
         }
       },
@@ -60,7 +72,8 @@
         "db": {
           "kind": "hana",
           "deploy-format": "hdbtable"
-        }
+        },
+        "destinations": true
       }
     }
   },

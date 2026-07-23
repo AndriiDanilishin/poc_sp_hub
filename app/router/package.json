@@ -1,0 +1,15 @@
+{
+  "name": "poc-sp-hub-approuter",
+  "version": "1.0.0",
+  "description": "Managed approuter for the AI Procurement Assistant Fiori apps",
+  "private": true,
+  "dependencies": {
+    "@sap/approuter": "^20"
+  },
+  "scripts": {
+    "start": "node node_modules/@sap/approuter/approuter.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

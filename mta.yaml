@@ -1,0 +1,205 @@
+_schema-version: '3.2'
+ID: poc-sp-hub
+version: 1.0.0
+description: AI Procurement Assistant — SAP CAP + Fiori on Cloud Foundry
+
+parameters:
+  enable-parallel-deployments: true
+  deploy_mode: html5-repo
+
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        # cds build produces gen/srv (Node service) and gen/db (HANA HDI content).
+        - npx cds build --production
+
+modules:
+  # ---------------------------------------------------------------------------
+  # CAP Node.js service (OData V4 + AI pipeline)
+  # ---------------------------------------------------------------------------
+  - name: poc-sp-hub-srv
+    type: nodejs
+    path: gen/srv
+    parameters:
+      buildpack: nodejs_buildpack
+      instances: 1
+    build-parameters:
+      builder: npm
+    properties:
+      # AI provider on CF. First deploy runs with the deterministic offline `mock`
+      # provider so the topology (xsuaa/hana/html5-repo/approuter) can be verified
+      # green with no GenAIHub destination and zero LLM cost. To go live, switch
+      # AI_PROVIDER to `destination` and create a BTP Destination named per
+      # AI_DESTINATION_NAME whose URL is an OpenAI-compatible endpoint (SAP
+      # Generative AI Hub / Azure OpenAI / proxy) — no key is baked into the deploy.
+      AI_PROVIDER: mock
+      AI_DESTINATION_NAME: GenAIHub
+      AI_REDACT_PII: 'true'
+    requires:
+      - name: poc-sp-hub-db
+      - name: poc-sp-hub-auth
+      - name: poc-sp-hub-destination
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+
+  # ---------------------------------------------------------------------------
+  # HANA HDI deployer — deploys the generated tables/views into the HDI container
+  # ---------------------------------------------------------------------------
+  - name: poc-sp-hub-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+    requires:
+      - name: poc-sp-hub-db
+
+  # ---------------------------------------------------------------------------
+  # Managed approuter — serves the 4 Fiori apps, handles xsuaa login + routes
+  # /api/* to the CAP service. Static content comes from the HTML5 repo.
+  # ---------------------------------------------------------------------------
+  - name: poc-sp-hub-approuter
+    type: approuter.nodejs
+    path: app/router
+    parameters:
+      keep-existing-routes: true
+      disk-quota: 256M
+      memory: 256M
+    requires:
+      - name: srv-api
+        group: destinations
+        properties:
+          name: srv-api
+          url: ~{srv-url}
+          forwardAuthToken: true
+      - name: poc-sp-hub-auth
+      - name: poc-sp-hub-html5-repo-runtime
+
+  # ---------------------------------------------------------------------------
+  # HTML5 apps deployer — pushes the built Fiori apps into the HTML5 repo
+  # ---------------------------------------------------------------------------
+  - name: poc-sp-hub-app-content
+    type: com.sap.application.content
+    path: .
+    requires:
+      - name: poc-sp-hub-html5-repo-host
+        parameters:
+          content-target: true
+    build-parameters:
+      build-result: resources
+      requires:
+        - artifacts:
+            - documentmanager.zip
+          name: documentmanager
+          target-path: resources/
+        - artifacts:
+            - intakehub.zip
+          name: intakehub
+          target-path: resources/
+        - artifacts:
+            - requirementworkspace.zip
+          name: requirementworkspace
+          target-path: resources/
+        - artifacts:
+            - sourcingproject.zip
+          name: sourcingproject
+          target-path: resources/
+
+  # Each Fiori app built into a deployable HTML5 zip.
+  - name: documentmanager
+    type: html5
+    path: app/document-manager
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        # npm install (not `npm ci`) — the Fiori apps have no committed
+        # package-lock.json, and each html5 module builds in isolation from its
+        # own `path`, so it can't rely on the npm-workspace hoisting that dev uses.
+        - npm install
+        - npm run build:cf
+      supported-platforms:
+        []
+  - name: intakehub
+    type: html5
+    path: app/intake-hub
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        # npm install (not `npm ci`) — the Fiori apps have no committed
+        # package-lock.json, and each html5 module builds in isolation from its
+        # own `path`, so it can't rely on the npm-workspace hoisting that dev uses.
+        - npm install
+        - npm run build:cf
+      supported-platforms:
+        []
+  - name: requirementworkspace
+    type: html5
+    path: app/requirement-workspace
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        # npm install (not `npm ci`) — the Fiori apps have no committed
+        # package-lock.json, and each html5 module builds in isolation from its
+        # own `path`, so it can't rely on the npm-workspace hoisting that dev uses.
+        - npm install
+        - npm run build:cf
+      supported-platforms:
+        []
+  - name: sourcingproject
+    type: html5
+    path: app/sourcing-project
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        # npm install (not `npm ci`) — the Fiori apps have no committed
+        # package-lock.json, and each html5 module builds in isolation from its
+        # own `path`, so it can't rely on the npm-workspace hoisting that dev uses.
+        - npm install
+        - npm run build:cf
+      supported-platforms:
+        []
+
+resources:
+  # HANA Cloud HDI container.
+  - name: poc-sp-hub-db
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana
+      service-plan: hdi-shared
+
+  # xsuaa — role-templates/scopes come from xs-security.json.
+  - name: poc-sp-hub-auth
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        xsappname: poc-sp-hub-${space}
+        tenant-mode: dedicated
+
+  # Destination service — holds the GenAIHub (OpenAI-compatible) destination and
+  # is also used by the approuter for the srv-api route.
+  - name: poc-sp-hub-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite
+
+  # HTML5 application repository (host = deploy target, runtime = served by approuter).
+  - name: poc-sp-hub-html5-repo-host
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-host
+  - name: poc-sp-hub-html5-repo-runtime
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-runtime

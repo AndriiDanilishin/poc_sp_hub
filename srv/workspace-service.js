@@ -1,5 +1,7 @@
 const cds = require('@sap/cds');
 const { enrichRequirement } = require('./ai/enrichment');
+const { detectDuplicates } = require('./ai/duplicate-detection');
+const { makeAuditWriter } = require('./lib/audit');
 
 // Confidence below this threshold must be human-reviewed before promotion (§19).
 const CONFIDENCE_REVIEW_THRESHOLD = 0.5;
@@ -11,13 +13,7 @@ module.exports = class WorkspaceService extends cds.ApplicationService {
       cds.entities('sourcing');
     const AuditLog = cds.entities('sourcing').AuditLog;
 
-    const writeAudit = (req, entry) =>
-      INSERT.into(AuditLog).entries({
-        ID: cds.utils.uuid(),
-        actor: req.user?.id,
-        aiInvolved: false,
-        ...entry,
-      });
+    const writeAudit = makeAuditWriter(AuditLog);
 
     // ---- Post-promotion freeze (§19, §20) ---------------------------------
     //
@@ -105,6 +101,36 @@ module.exports = class WorkspaceService extends cds.ApplicationService {
           before: JSON.stringify(before),
         });
       }
+    });
+
+    // Propose duplicate groups for a workspace (§3 step 4). Read-only analysis —
+    // returns scored pairs with human-readable reasons; never writes duplicateOf or
+    // merges (that stays a human act via merge, §25).
+    this.on('detectDuplicates', async (req) => {
+      const { workspaceId } = req.data;
+      const workspace = await SELECT.one
+        .from(RequirementWorkspaces)
+        .columns('ID')
+        .where({ ID: workspaceId });
+      if (!workspace) {
+        return req.reject(404, `Workspace ${workspaceId} not found`);
+      }
+
+      const items = await SELECT.from(WorkspaceRequirements)
+        .columns('ID', 'description', 'quantity', 'unit')
+        .where({ workspace_ID: workspaceId });
+
+      const { pairs, assignments } = await detectDuplicates(items);
+      return {
+        pairs: pairs.map((p) => ({
+          aId: p.aId,
+          bId: p.bId,
+          score: p.score,
+          reasons: p.reasons,
+        })),
+        // Number of requirements the analysis considers duplicates of an earlier item.
+        groupCount: assignments.length,
+      };
     });
 
     this.on('merge', async (req) => {

@@ -3,6 +3,11 @@ target/
 _out/
 gen/
 
+# MTA / Fiori build intermediates
+dist/
+resources/
+app/*/dist/
+
 .cdsrc-private.json
 default-*.json
 *.sqlite

@@ -16,6 +16,7 @@
     "eslint": "^10"
   },
   "scripts": {
-    "deploy-config": "npx -p @sap/ux-ui5-tooling fiori add deploy-config cf"
+    "deploy-config": "npx -p @sap/ux-ui5-tooling fiori add deploy-config cf",
+    "build:cf": "ui5 build --clean-dest --dest dist --include-task=generateManifestBundle generateCachebusterInfo"
   }
 }

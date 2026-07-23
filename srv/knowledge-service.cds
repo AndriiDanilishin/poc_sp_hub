@@ -3,7 +3,7 @@ using {sourcing as db} from '../db/sourcing-schema';
 // The curated RAG corpus is readable reference data; only the Knowledge Curator
 // may mutate it. So the write actions are role-restricted rather than the whole
 // service (§22) — this also lets the Fiori preview / read clients work in dev.
-service KnowledgeService @(path: '/api/knowledge') {
+service KnowledgeService @(path: '/api/knowledge', requires: 'authenticated-user') {
 
     // The embedding vector is managed internally, never exposed over OData.
     entity KnowledgeDocuments as
