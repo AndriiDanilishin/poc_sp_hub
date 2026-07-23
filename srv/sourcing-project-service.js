@@ -21,6 +21,83 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
       return typeof last === 'object' ? last.ID : last;
     };
 
+    // ---- Approval freeze (§20, §25) ---------------------------------------
+    //
+    // `approve` gates the DRAFT -> APPROVED transition, but that only protected
+    // the *transition*: the entities stayed fully writable, so a plain OData
+    // PATCH could still rewrite an approved project or any of its children.
+    // Verified before this guard existed: PATCH /Risks(<risk of an APPROVED
+    // project>) and PATCH /SourcingProjects(<APPROVED>) both returned 200 and
+    // silently changed the data.
+    //
+    // That defeats the point of the sign-off — what was approved must be what
+    // reaches S/4HANA — and the AuditLog records the actions, not these raw
+    // writes. So the freeze is enforced on the entities themselves.
+    const FROZEN_MSG = (status) =>
+      `This sourcing project is ${status} and can no longer be changed. ` +
+      `Only DRAFT projects are editable.`;
+
+    const projectStatusOf = async (projectId) => {
+      if (!projectId) return null;
+      const row = await SELECT.one
+        .from(SourcingProjects)
+        .columns('status')
+        .where({ ID: projectId });
+      return row?.status ?? null;
+    };
+
+    // The service's own status transitions (approve, and later submitToS4) go
+    // through UPDATE(SourcingProjects) on a service entity, which re-enters this
+    // handler. They are legitimate, so a change consisting only of `status` is
+    // let through; a user PATCH always carries other fields.
+    this.before('UPDATE', SourcingProjects, async (req) => {
+      const id = req.data?.ID ?? boundKey(req);
+      const status = await projectStatusOf(id);
+      if (!status || status === 'DRAFT') return;
+
+      const touched = Object.keys(req.data || {}).filter((k) => k !== 'ID');
+      const statusOnly = touched.length === 1 && touched[0] === 'status';
+      if (statusOnly) return;
+
+      return req.reject(409, FROZEN_MSG(status));
+    });
+
+    // Same rule for the composition children: resolve the owning project and
+    // block the write once it has left DRAFT. Without this, the header could be
+    // frozen while its risks/requirements/suppliers stayed editable.
+    const CHILD_ENTITIES = [
+      Requirements,
+      Risks,
+      SourcingProjectSuppliers,
+      this.entities.SourcingProjectCommodities,
+      this.entities.Attachments,
+    ].filter(Boolean);
+
+    const guardChild = async (req) => {
+      // CREATE carries the FK in the payload; UPDATE/DELETE address an existing
+      // row, so the owning project is looked up from the stored row.
+      let projectId = req.data?.project_ID;
+      if (!projectId) {
+        const key = req.params?.[req.params.length - 1];
+        const rowId = typeof key === 'object' ? key.ID : key;
+        if (rowId) {
+          const row = await SELECT.one
+            .from(req.target)
+            .columns('project_ID')
+            .where({ ID: rowId });
+          projectId = row?.project_ID;
+        }
+      }
+      const status = await projectStatusOf(projectId);
+      if (status && status !== 'DRAFT') {
+        return req.reject(409, FROZEN_MSG(status));
+      }
+    };
+
+    CHILD_ENTITIES.forEach((entity) => {
+      this.before(['CREATE', 'UPDATE', 'DELETE'], entity, guardChild);
+    });
+
     this.on('generateDraft', async (req) => {
       const id = boundKey(req);
       const project = await SELECT.one.from(SourcingProjects).where({ ID: id });

@@ -23,13 +23,15 @@
 @manager   = Authorization: Basic bWFuYWdlcjo=
 
 # Seeded IDs (test/data/sourcing-*.csv)
-@wsOpen        = a1000000-0000-4000-8000-000000000001
+@wsSeeded      = a1000000-0000-4000-8000-000000000001
 @wsArchived    = a1000000-0000-4000-8000-000000000002
 @docUploaded   = b1000000-0000-4000-8000-000000000004
 @docExtracted  = b1000000-0000-4000-8000-000000000001
 @reqAccepted   = c1000000-0000-4000-8000-000000000003
 @reqLowConf    = c1000000-0000-4000-8000-000000000004
 @projApproved  = e1000000-0000-4000-8000-000000000001
+# A risk belonging to the APPROVED project above — used by the freeze guards.
+@riskApproved  = 03000000-0000-4000-8000-000000000001
 
 
 ###############################################################################
@@ -56,6 +58,23 @@ GET {{host}}/api/knowledge/
 ###############################################################################
 # IntakeService  /api/intake
 ###############################################################################
+
+### A fresh OPEN workspace for this run to write into
+# Everything below that creates documents/requirements targets {{wsOpen}}. That
+# used to be a SEEDED id — which broke as soon as anything promoted it, because
+# promotion archives a workspace and an archived workspace is now read-only
+# (see the post-promotion freeze in srv/workspace-service.js). Creating the
+# workspace per run keeps the suite independent of accumulated DB state, which
+# is what lets it pass repeatedly rather than only against a fresh seed.
+# @name runWs
+POST {{host}}/api/intake/createWorkspace
+{{requester}}
+Content-Type: application/json
+
+{ "title": "api.http run workspace" }
+
+### Use it for the rest of the run
+@wsOpen = {{runWs.response.body.ID}}
 
 ### List source documents (with computed statusCriticality + workspaceTitle + workspaceUrl)
 # workspaceTitle exposes the associated workspace's human-readable name (e.g.
@@ -87,7 +106,7 @@ Content-Type: application/json
 { "title": "Intake Hub inline workspace" }
 
 ### Capture the new workspace id
-@intakeWsId = {{intakeWs.response.body.d.ID}}
+@intakeWsId = {{intakeWs.response.body.ID}}
 
 ### Guard: createWorkspace with blank title -> expect 400
 POST {{host}}/api/intake/createWorkspace
@@ -147,7 +166,7 @@ Content-Type: application/json
 }
 
 ### Capture the uploaded document id
-@newDoc = {{upload.response.body.d.ID}}
+@newDoc = {{upload.response.body.ID}}
 
 ### Extract requirements from the freshly uploaded doc
 # Under the mock AI provider this yields one placeholder requirement (expected offline).
@@ -178,13 +197,41 @@ Content-Type: application/json
 
 { "documentId": "b1000000-0000-4000-8000-000000000003" }
 
-### changeWorkspace on the new (UPLOADED) doc — allowed before extraction
-# NOTE: run BEFORE the extract above if you want it to succeed; after EXTRACTED -> 409.
+### changeWorkspace after extraction is blocked -> expect 409
+# The document captured above has been extracted by now, so its requirements
+# already live in the current workspace and moving only the document would
+# orphan them (§18). The allowed-before-extraction path is covered by the next
+# request, which uploads a fresh document for the purpose — so the file runs
+# top-to-bottom without depending on a hand-picked order.
 POST {{host}}/api/intake/changeWorkspace
 {{requester}}
 Content-Type: application/json
 
 { "documentId": "{{newDoc}}", "newWorkspaceId": "{{wsArchived}}" }
+
+### A fresh UPLOADED document, purely to exercise the allowed move
+# @name movable
+POST {{host}}/api/intake/uploadDocument
+{{requester}}
+Content-Type: application/json
+
+{
+  "workspaceId": "{{wsOpen}}",
+  "originType": "Text",
+  "fileName": "movable.txt",
+  "fileType": "txt",
+  "content": "Source 2 monitor stands."
+}
+
+### Capture it
+@movableDoc = {{movable.response.body.ID}}
+
+### changeWorkspace on an UPLOADED doc — allowed before extraction -> expect 200
+POST {{host}}/api/intake/changeWorkspace
+{{requester}}
+Content-Type: application/json
+
+{ "documentId": "{{movableDoc}}", "newWorkspaceId": "{{wsArchived}}" }
 
 
 ###############################################################################
@@ -212,7 +259,7 @@ Content-Type: application/json
 }
 
 ### Capture the new document id
-@pdfDoc = {{pdfUpload.response.body.d.ID}}
+@pdfDoc = {{pdfUpload.response.body.ID}}
 
 ### PUT the raw PDF bytes to the media stream -> expect 204
 # The after-UPDATE handler then corrects fileSize to the bytes actually stored,
@@ -283,7 +330,7 @@ POST {{host}}/api/intake/extractRequirements
 {{requester}}
 Content-Type: application/json
 
-{ "documentId": "{{xlsxDoc.response.body.d.ID}}" }
+{ "documentId": "{{xlsxDoc.response.body.ID}}" }
 
 
 ###############################################################################
@@ -310,10 +357,24 @@ GET {{host}}/api/workspace/MaterialGroups?$select=code,name
 GET {{host}}/api/workspace/CommodityCodes?$select=code,description
 {{requester}}
 
+### A requirement in this run's workspace, to edit below
+# Was a seeded row ({{reqAccepted}}), which lives in the seeded workspace — once
+# anything promotes that workspace it is archived and read-only, so the edit
+# below 409'd. Creating the row here keeps the request independent of DB state.
+# @name editable
+POST {{host}}/api/workspace/WorkspaceRequirements
+{{requester}}
+Content-Type: application/json
+
+{ "workspace_ID": "{{wsOpen}}", "description": "value-help edit target", "quantity": 1, "aiStatus": "ACCEPTED" }
+
+### Capture it
+@editableId = {{editable.response.body.ID}}
+
 ### Edit a requirement's Material Group + Commodity via value help (PATCH FK codes)
 # What the Workspace app's Edit dialog Save does. The before-UPDATE hook flips the
 # row to aiStatus='EDITED'. Uses a valid seeded code so the FK resolves.
-PATCH {{host}}/api/workspace/WorkspaceRequirements/{{reqAccepted}}
+PATCH {{host}}/api/workspace/WorkspaceRequirements/{{editableId}}
 {{requester}}
 Content-Type: application/json
 
@@ -351,15 +412,54 @@ Content-Type: application/json
 
 { "id": "{{reqLowConf}}" }
 
+### Merge: create two throwaway requirements first
+# Previously this merged two SEEDED ids. merge() deletes the losing row, so the
+# request passed exactly once against a fresh DB and 404'd on every run after —
+# it was destructive and non-repeatable. It now creates its own inputs.
+# @name mergeA
+POST {{host}}/api/workspace/WorkspaceRequirements
+{{requester}}
+Content-Type: application/json
+
+{ "workspace_ID": "{{wsOpen}}", "description": "merge input A", "quantity": 1, "aiStatus": "PROPOSED" }
+
+### Capture A
+@mergeAId = {{mergeA.response.body.ID}}
+
+### Second throwaway requirement
+# @name mergeB
+POST {{host}}/api/workspace/WorkspaceRequirements
+{{requester}}
+Content-Type: application/json
+
+{ "workspace_ID": "{{wsOpen}}", "description": "merge input B", "quantity": 1, "aiStatus": "PROPOSED" }
+
+### Capture B
+@mergeBId = {{mergeB.response.body.ID}}
+
 ### Merge two requirements into one (unions source links)
 POST {{host}}/api/workspace/merge
 {{requester}}
 Content-Type: application/json
 
-{ "ids": [ "c1000000-0000-4000-8000-000000000001", "c1000000-0000-4000-8000-000000000002" ] }
+{ "ids": [ "{{mergeAId}}", "{{mergeBId}}" ] }
+
+### Clean up the surviving merge row so repeated runs don't accumulate rows
+DELETE {{host}}/api/workspace/WorkspaceRequirements({{mergeAId}})
+{{requester}}
+
+### A low-confidence, unreviewed requirement — the thing that blocks promotion
+# The gate (§19) blocks a workspace when a row is still PROPOSED AND scored below
+# 0.5. Previously this relied on the seeded 42% "safety goggles" row; creating it
+# here makes the guard verifiable in any DB state, and pairs it with the ACCEPTED
+# row above so the 409 is the gate firing, not "nothing to promote" (400).
+POST {{host}}/api/workspace/WorkspaceRequirements
+{{requester}}
+Content-Type: application/json
+
+{ "workspace_ID": "{{wsOpen}}", "description": "safety goggles (low confidence)", "quantity": 5, "aiStatus": "PROPOSED", "confidenceScore": 0.42 }
 
 ### Guard: promote OPEN workspace — blocked by low-confidence gate -> expect 409
-# The 42% "safety goggles" row (PROPOSED, conf<0.5) blocks promotion until reviewed.
 POST {{host}}/api/workspace/promoteToSourcingProject
 {{requester}}
 Content-Type: application/json
@@ -469,6 +569,50 @@ POST {{host}}/api/sourcing/SourcingProjects({{projApproved}})/SourcingProjectSer
 Content-Type: application/json
 
 {}
+
+# --- Approval freeze (§20, §25) ----------------------------------------------
+# The action gates gate the *transitions*; these gate the *data*. Before the
+# before-UPDATE/CREATE/DELETE guards existed, both of the PATCHes below returned
+# 200 and silently rewrote an approved project — so what was signed off was not
+# necessarily what would reach S/4HANA.
+
+### Guard: PATCH an APPROVED project's header -> expect 409
+PATCH {{host}}/api/sourcing/SourcingProjects({{projApproved}})
+{{manager}}
+Content-Type: application/json
+
+{ "title": "tamper attempt" }
+
+### Guard: PATCH a Risk belonging to an APPROVED project -> expect 409
+PATCH {{host}}/api/sourcing/Risks({{riskApproved}})
+{{manager}}
+Content-Type: application/json
+
+{ "description": "tamper attempt" }
+
+### Guard: DELETE a Risk of an APPROVED project -> expect 409
+DELETE {{host}}/api/sourcing/Risks({{riskApproved}})
+{{manager}}
+
+### Guard: CREATE a Risk under an APPROVED project -> expect 409
+POST {{host}}/api/sourcing/Risks
+{{manager}}
+Content-Type: application/json
+
+{
+  "project_ID": "{{projApproved}}",
+  "description": "tamper attempt",
+  "severity": "Low"
+}
+
+### The freeze must NOT block work in progress: PATCH a DRAFT project -> expect 200
+# Uses the project created by the promote flow above (promotion always yields a
+# DRAFT), so this needs no extra seed row. Run after the promote section.
+PATCH {{host}}/api/sourcing/SourcingProjects({{promoProjId}})
+{{manager}}
+Content-Type: application/json
+
+{ "priority": "High" }
 
 
 ###############################################################################

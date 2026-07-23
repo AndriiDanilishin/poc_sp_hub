@@ -15,16 +15,22 @@ annotate service.SourcingProjects with @(
         priority,
         category
     ],
+    // No per-item Label: each duplicated the @title annotated below. Importance
+    // keeps title/status in view when the ResponsiveTable narrows on small
+    // screens — they are what identify and triage a project.
     UI.LineItem           : [
-        {Value: title, Label: 'Title'},
-        {Value: category, Label: 'Category'},
         {
-            Value      : status,
-            Label      : 'Status',
-            Criticality: statusCriticality
+            Value            : title,
+            ![@UI.Importance]: #High
         },
-        {Value: priority, Label: 'Priority'},
-        {Value: budgetAmount, Label: 'Budget'},
+        {Value: category},
+        {
+            Value            : status,
+            Criticality      : statusCriticality,
+            ![@UI.Importance]: #High
+        },
+        {Value: priority},
+        {Value: budgetAmount},
         // Bound actions surface as buttons in the list toolbar too.
         {
             $Type : 'UI.DataFieldForAction',
@@ -51,21 +57,20 @@ annotate service.SourcingProjects with @(
         },
     ],
     UI.FieldGroup #General: {Data: [
-        {Value: title, Label: 'Title'},
-        {Value: description, Label: 'Description'},
-        {Value: category, Label: 'Category'},
+        {Value: title},
+        {Value: description},
+        {Value: category},
         {
             Value      : status,
-            Label      : 'Status',
             Criticality: statusCriticality
         },
-        {Value: priority, Label: 'Priority'},
+        {Value: priority},
     ]},
     UI.FieldGroup #Timeline: {Data: [
-        {Value: timelineStart, Label: 'Timeline Start'},
-        {Value: timelineEnd, Label: 'Timeline End'},
-        {Value: budgetAmount, Label: 'Budget Amount'},
-        {Value: budgetCurrency, Label: 'Currency'},
+        {Value: timelineStart},
+        {Value: timelineEnd},
+        {Value: budgetAmount},
+        {Value: budgetCurrency},
     ]},
     UI.Facets             : [
         {
@@ -130,31 +135,37 @@ annotate service.SourcingProjects with {
 // Composition children — line items shown as Object Page tables
 // ---------------------------------------------------------------------------
 annotate service.Requirements with @(UI.LineItem: [
-    {Value: description, Label: 'Description'},
-    {Value: quantity, Label: 'Quantity'},
-    {Value: unit, Label: 'Unit'},
-    {Value: materialGroup_code, Label: 'Material Group'},
-    {Value: commodityCode_code, Label: 'Commodity'},
-    {Value: aiGenerated, Label: 'AI Generated'},
+    {
+        Value            : description,
+        ![@UI.Importance]: #High
+    },
+    {Value: quantity},
+    {Value: unit},
+    {Value: materialGroup_code},
+    {Value: commodityCode_code},
+    {Value: aiGenerated},
 ]) {
     description   @title: 'Description';
     quantity      @title: 'Quantity';
     unit          @title: 'Unit';
-    materialGroup @title: 'Material Group';
-    commodityCode @title: 'Commodity';
+    materialGroup @title             : 'Material Group'
+                  @Common.Text       : materialGroup.name
+                  @Common.TextArrangement: #TextFirst;
+    commodityCode @title             : 'Commodity'
+                  @Common.Text       : commodityCode.description
+                  @Common.TextArrangement: #TextFirst;
     aiGenerated   @title: 'AI Generated';
 };
 
 annotate service.Risks with @(UI.LineItem: [
-    {Value: description, Label: 'Risk'},
+    {Value: description},
     {
         Value      : severity,
-        Label      : 'Severity',
         Criticality: severityCriticality
     },
-    {Value: category, Label: 'Category'},
-    {Value: mitigation, Label: 'Mitigation'},
-    {Value: aiGenerated, Label: 'AI Generated'},
+    {Value: category},
+    {Value: mitigation},
+    {Value: aiGenerated},
 ]) {
     description @title: 'Risk';
     severity    @title: 'Severity';
@@ -163,31 +174,39 @@ annotate service.Risks with @(UI.LineItem: [
     aiGenerated @title: 'AI Generated';
 };
 
+// Supplier is keyed by its S/4HANA business-partner number, so the raw FK reads
+// as e.g. "1000002" — meaningless to the manager approving the project. Text +
+// TextArrangement makes Fiori Elements render "Office Supplies GmbH (1000002)"
+// with no custom code. Same reasoning for the commodity/material-group codes.
 annotate service.SourcingProjectSuppliers with @(UI.LineItem: [
-    {Value: supplier_ID, Label: 'Supplier'},
-    {Value: rationale, Label: 'Rationale'},
-    {Value: confidenceScore, Label: 'Confidence'},
-    {Value: aiGenerated, Label: 'AI Generated'},
+    {Value: supplier_ID},
+    {Value: rationale},
+    {Value: confidenceScore},
+    {Value: aiGenerated},
 ]) {
-    supplier        @title: 'Supplier';
+    supplier        @title             : 'Supplier'
+                    @Common.Text       : supplier.name
+                    @Common.TextArrangement: #TextFirst;
     rationale       @title: 'Rationale';
     confidenceScore @title: 'Confidence';
     aiGenerated     @title: 'AI Generated';
 };
 
 annotate service.SourcingProjectCommodities with @(UI.LineItem: [
-    {Value: commodityCode_code, Label: 'Commodity Code'},
-    {Value: aiGenerated, Label: 'AI Generated'},
+    {Value: commodityCode_code},
+    {Value: aiGenerated},
 ]) {
-    commodityCode @title: 'Commodity Code';
+    commodityCode @title             : 'Commodity Code'
+                  @Common.Text       : commodityCode.description
+                  @Common.TextArrangement: #TextFirst;
     aiGenerated   @title: 'AI Generated';
 };
 
 annotate service.Attachments with @(UI.LineItem: [
-    {Value: fileName, Label: 'File Name'},
-    {Value: fileType, Label: 'File Type'},
-    {Value: fileSize, Label: 'Size'},
-    {Value: url, Label: 'URL'},
+    {Value: fileName},
+    {Value: fileType},
+    {Value: fileSize},
+    {Value: url},
 ]) {
     fileName @title: 'File Name';
     fileType @title: 'File Type';

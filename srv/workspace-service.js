@@ -19,6 +19,71 @@ module.exports = class WorkspaceService extends cds.ApplicationService {
         ...entry,
       });
 
+    // ---- Post-promotion freeze (§19, §20) ---------------------------------
+    //
+    // Promotion archives the workspace, but ARCHIVED only described the row — it
+    // did not protect it. Verified before this guard: PATCH and DELETE on a
+    // requirement of an ARCHIVED workspace both succeeded (200 / 204).
+    //
+    // Scope note: promoteToSourcingProject COPIES requirements into the project
+    // rather than referencing them (distinct IDs, see the comment at the INSERT),
+    // so editing an archived workspace could never corrupt an approved project.
+    // What it did corrupt is the audit trail — the record of what was actually
+    // promoted could be rewritten or deleted after the fact. That is what this
+    // closes; it is deliberately a weaker claim than the SourcingProject freeze.
+    const ARCHIVED_MSG =
+      'This workspace has been promoted to a Sourcing Project and is now read-only. ' +
+      'Its requirements are the record of what was promoted.';
+
+    const workspaceStatusOf = async (workspaceId) => {
+      if (!workspaceId) return null;
+      const row = await SELECT.one
+        .from(RequirementWorkspaces)
+        .columns('status')
+        .where({ ID: workspaceId });
+      return row?.status ?? null;
+    };
+
+    // promoteToSourcingProject archives the workspace through UPDATE on a service
+    // entity, which re-enters this handler. That write sets exactly
+    // sourcingProject_ID + status, so it is let through; a user edit always
+    // carries other fields.
+    this.before('UPDATE', RequirementWorkspaces, async (req) => {
+      const id = req.data?.ID ?? req.params?.[req.params.length - 1]?.ID;
+      const status = await workspaceStatusOf(id);
+      if (!status || status !== 'ARCHIVED') return;
+
+      const touched = Object.keys(req.data || {}).filter((k) => k !== 'ID');
+      const isArchiveWrite =
+        touched.length <= 2 && touched.every((k) => k === 'status' || k === 'sourcingProject_ID');
+      if (isArchiveWrite) return;
+
+      return req.reject(409, ARCHIVED_MSG);
+    });
+
+    // Requirements of an archived workspace are frozen too. Registered BEFORE the
+    // EDITED-marking and audit handlers below so a rejected write never reaches
+    // them.
+    const guardRequirement = async (req) => {
+      let workspaceId = req.data?.workspace_ID;
+      if (!workspaceId) {
+        const rowId = req.data?.ID ?? req.params?.[req.params.length - 1]?.ID;
+        if (rowId) {
+          const row = await SELECT.one
+            .from(WorkspaceRequirements)
+            .columns('workspace_ID')
+            .where({ ID: rowId });
+          workspaceId = row?.workspace_ID;
+        }
+      }
+      const status = await workspaceStatusOf(workspaceId);
+      if (status === 'ARCHIVED') {
+        return req.reject(409, ARCHIVED_MSG);
+      }
+    };
+
+    this.before(['CREATE', 'UPDATE', 'DELETE'], WorkspaceRequirements, guardRequirement);
+
     // Any inline edit that doesn't explicitly set aiStatus marks the row EDITED,
     // so later regeneration never silently overwrites human changes (§19, §25).
     this.before('UPDATE', 'WorkspaceRequirements', (req) => {

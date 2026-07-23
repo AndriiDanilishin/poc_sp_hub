@@ -19,6 +19,7 @@
     "watch-intake-hub": "cds watch --open poc.sp.hub.intakehub/index.html?sap-ui-xx-viewCache=false --livereload false",
     "watch-sourcing-project": "cds watch --open poc.sp.hub.sourcingproject/index.html?sap-ui-xx-viewCache=false --livereload false",
     "watch-requirement-workspace": "cds watch --open poc.sp.hub.requirementworkspace/index.html?sap-ui-xx-viewCache=false --livereload false",
+    "test": "node test/run-http.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
