@@ -13,13 +13,17 @@
         <f:title>
             <f:DynamicPageTitle>
                 <f:heading>
-                    <Title text="Requirement Workspace" />
+                    <Title text="{i18n>pageTitle}" />
                 </f:heading>
                 <f:content>
+                    <!-- tooltip doubles as the accessible name: the picker sits in
+                         the page title with no visible Label, so without it a screen
+                         reader announces an unlabelled combo box. -->
                     <Select
                         id="workspaceSelect"
                         width="22rem"
                         forceSelection="false"
+                        tooltip="{i18n>workspaceSelectTooltip}"
                         change=".onWorkspaceChange"
                         items="{path: '/RequirementWorkspaces', parameters: {$orderby: 'createdAt desc'}}">
                         <core:Item key="{ID}" text="{title} ({status})" />
@@ -27,8 +31,8 @@
                     <Button
                         id="createWorkspaceBtn"
                         icon="sap-icon://add"
-                        tooltip="Create Workspace"
-                        text="New"
+                        tooltip="{i18n>newWorkspaceTooltip}"
+                        text="{i18n>newWorkspaceButton}"
                         press=".onCreateWorkspace"
                         class="sapUiSmallMarginBegin" />
                     <ObjectStatus
@@ -39,7 +43,7 @@
                 <f:actions>
                     <Button
                         id="promoteBtn"
-                        text="Promote to Sourcing Project"
+                        text="{i18n>promoteButton}"
                         type="Emphasized"
                         icon="sap-icon://journey-arrive"
                         enabled="{= ${ui>/workspaceStatus} === 'OPEN'}"
@@ -56,13 +60,13 @@
                     <mdc:filterItems>
                         <mdc:FilterField
                             id="ffDescription"
-                            label="Description"
+                            label="{i18n>filterDescription}"
                             propertyKey="description"
                             dataType="sap.ui.model.odata.type.String"
                             conditions="{$filters>/conditions/description}" />
                         <mdc:FilterField
                             id="ffAiStatus"
-                            label="AI Status"
+                            label="{i18n>filterAiStatus}"
                             propertyKey="aiStatus"
                             dataType="sap.ui.model.odata.type.String"
                             operators="EQ"
@@ -74,7 +78,7 @@
         <f:content>
             <mdc:Table
                 id="reqTable"
-                header="Requirements"
+                header="{i18n>tableHeader}"
                 filter="fb"
                 selectionMode="Multi"
                 autoBindOnInit="false"
@@ -82,7 +86,7 @@
                 threshold="100"
                 showRowCount="true"
                 selectionChange=".onSelectionChange"
-                noData="No requirements in this workspace yet. Upload documents in the Intake Hub and run extraction."
+                noData="{i18n>tableNoData}"
                 delegate='{"name": "poc/sp/hub/requirementworkspace/delegate/TableDelegate", "payload": {"collectionPath": "/WorkspaceRequirements"}}'>
                 <mdc:type>
                     <mdct:ResponsiveTableType growingMode="Basic" />
@@ -91,7 +95,7 @@
                     <mdcat:ActionToolbarAction>
                         <Button
                             id="acceptBtn"
-                            text="Accept"
+                            text="{i18n>actionAccept}"
                             icon="sap-icon://accept"
                             enabled="{= ${ui>/selCount} > 0}"
                             press=".onAccept" />
@@ -99,7 +103,7 @@
                     <mdcat:ActionToolbarAction>
                         <Button
                             id="editBtn"
-                            text="Edit"
+                            text="{i18n>actionEdit}"
                             icon="sap-icon://edit"
                             enabled="{= ${ui>/selCount} === 1}"
                             press=".onEdit" />
@@ -107,7 +111,7 @@
                     <mdcat:ActionToolbarAction>
                         <Button
                             id="mergeBtn"
-                            text="Merge"
+                            text="{i18n>actionMerge}"
                             icon="sap-icon://combine"
                             enabled="{= ${ui>/selCount} > 1}"
                             press=".onMerge" />
@@ -115,7 +119,7 @@
                     <mdcat:ActionToolbarAction>
                         <Button
                             id="splitBtn"
-                            text="Split"
+                            text="{i18n>actionSplit}"
                             icon="sap-icon://split"
                             enabled="{= ${ui>/selCount} === 1}"
                             press=".onSplit" />
@@ -123,7 +127,7 @@
                     <mdcat:ActionToolbarAction>
                         <Button
                             id="rejectBtn"
-                            text="Reject AI"
+                            text="{i18n>actionReject}"
                             icon="sap-icon://cancel"
                             enabled="{= ${ui>/selCount} === 1}"
                             press=".onReject" />
@@ -131,7 +135,7 @@
                     <mdcat:ActionToolbarAction>
                         <Button
                             id="regenerateBtn"
-                            text="Enrichment"
+                            text="{i18n>actionEnrichment}"
                             icon="sap-icon://ai"
                             enabled="{= ${ui>/selCount} &gt;= 1 &amp;&amp; !${ui>/enriching} }"
                             press=".onRegenerate" />
@@ -139,7 +143,7 @@
                     <mdcat:ActionToolbarAction>
                         <Button
                             id="sourcesBtn"
-                            text="Sources"
+                            text="{i18n>actionSources}"
                             icon="sap-icon://attachment"
                             enabled="{= ${ui>/selCount} === 1}"
                             press=".onShowSources" />
@@ -147,46 +151,50 @@
                     <mdcat:ActionToolbarAction>
                         <Button
                             id="deleteBtn"
-                            text="Delete"
+                            text="{i18n>actionDelete}"
                             icon="sap-icon://delete"
                             enabled="{= ${ui>/selCount} > 0}"
                             press=".onDelete" />
                     </mdcat:ActionToolbarAction>
                 </mdc:actions>
                 <mdc:columns>
-                    <mdct:Column propertyKey="description" header="Description">
+                    <mdct:Column propertyKey="description" header="{i18n>colDescription}">
                         <mdct:template>
                             <ObjectIdentifier title="{description}" text="{normalizedDescription}" />
                         </mdct:template>
                     </mdct:Column>
-                    <mdct:Column propertyKey="quantity" header="Quantity" hAlign="End" width="8rem">
+                    <mdct:Column propertyKey="quantity" header="{i18n>colQuantity}" hAlign="End" width="8rem">
                         <mdct:template>
                             <ObjectNumber number="{quantity}" unit="{unit}" emphasized="false" />
                         </mdct:template>
                     </mdct:Column>
-                    <mdct:Column propertyKey="requestedDate" header="Requested" width="9rem">
+                    <mdct:Column propertyKey="requestedDate" header="{i18n>colRequested}" width="9rem">
                         <mdct:template>
                             <Text text="{requestedDate}" />
                         </mdct:template>
                     </mdct:Column>
-                    <mdct:Column propertyKey="materialGroup_code" header="Material Group" width="10rem">
+                    <mdct:Column propertyKey="materialGroup_code" header="{i18n>colMaterialGroup}" width="10rem">
                         <mdct:template>
                             <Text text="{materialGroup_code}" />
                         </mdct:template>
                     </mdct:Column>
-                    <mdct:Column propertyKey="commodityCode_code" header="Commodity" width="9rem">
+                    <mdct:Column propertyKey="commodityCode_code" header="{i18n>colCommodity}" width="9rem">
                         <mdct:template>
                             <Text text="{commodityCode_code}" />
                         </mdct:template>
                     </mdct:Column>
-                    <mdct:Column propertyKey="confidenceScore" header="AI Confidence" width="9rem">
+                    <mdct:Column propertyKey="confidenceScore" header="{i18n>colConfidence}" width="9rem">
                         <mdct:template>
+                            <!-- tooltip states the band in words: state= carries the
+                                 Success/Warning/Error colour, and colour alone must
+                                 not be the only channel for meaning (WCAG 1.4.1). -->
                             <ObjectStatus
                                 text="{path: 'confidenceScore', formatter: '.formatter.confidencePercent'}"
-                                state="{path: 'confidenceScore', formatter: '.formatter.confidenceState'}" />
+                                state="{path: 'confidenceScore', formatter: '.formatter.confidenceState'}"
+                                tooltip="{path: 'confidenceScore', formatter: '.formatter.confidenceTooltip'}" />
                         </mdct:template>
                     </mdct:Column>
-                    <mdct:Column propertyKey="aiStatus" header="AI Status" width="9rem">
+                    <mdct:Column propertyKey="aiStatus" header="{i18n>colAiStatus}" width="9rem">
                         <mdct:template>
                             <ObjectStatus
                                 text="{parts: ['aiStatus', 'confidenceScore'], formatter: '.formatter.aiStatusText'}"
@@ -195,10 +203,10 @@
                                 tooltip="{parts: ['aiStatus', 'confidenceScore'], formatter: '.formatter.aiStatusTooltip'}" />
                         </mdct:template>
                     </mdct:Column>
-                    <mdct:Column propertyKey="duplicateOf_ID" header="Duplicate" width="10rem">
+                    <mdct:Column propertyKey="duplicateOf_ID" header="{i18n>colDuplicate}" width="10rem">
                         <mdct:template>
                             <ObjectStatus
-                                text="{= ${duplicateOf_ID} ? 'Possible duplicate' : ''}"
+                                text="{= ${duplicateOf_ID} ? ${i18n>duplicateMarker} : ''}"
                                 state="Warning"
                                 icon="{= ${duplicateOf_ID} ? 'sap-icon://duplicate' : ''}" />
                         </mdct:template>

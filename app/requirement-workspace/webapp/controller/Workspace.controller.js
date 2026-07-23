@@ -11,6 +11,7 @@ sap.ui.define(
         "sap/m/Text",
         "sap/m/Label",
         "sap/m/Input",
+        "sap/m/DatePicker",
         "sap/m/ObjectAttribute",
         "sap/m/SelectDialog",
         "sap/m/StandardListItem",
@@ -31,6 +32,7 @@ sap.ui.define(
         Text,
         Label,
         Input,
+        DatePicker,
         ObjectAttribute,
         SelectDialog,
         StandardListItem,
@@ -41,11 +43,21 @@ sap.ui.define(
     ) {
         "use strict";
 
+        // Resource bundle, captured in onInit. The formatters below need it, but
+        // inside an mdc ResponsiveTable column template `this` is NOT the formatter
+        // object (see the note on the aiStatus* group), so they cannot reach it
+        // through the controller. A module-scoped reference is the reliable route.
+        // Single-view app, so one bundle is unambiguous.
+        var oBundle = null;
+        function text(sKey, aArgs) {
+            return oBundle ? oBundle.getText(sKey, aArgs) : sKey;
+        }
+
         return Controller.extend("poc.sp.hub.requirementworkspace.controller.Workspace", {
             formatter: {
                 confidencePercent: function (vScore) {
                     if (vScore === null || vScore === undefined) {
-                        return "—";
+                        return text("confidenceNone");
                     }
                     return Math.round(Number(vScore) * 100) + " %";
                 },
@@ -56,6 +68,21 @@ sap.ui.define(
                     }
                     var n = Number(vScore);
                     return n >= 0.8 ? "Success" : n >= 0.5 ? "Warning" : "Error";
+                },
+                // States the band in words so colour is not the only carrier of
+                // meaning (WCAG 1.4.1) — the state= binding above is colour-only.
+                confidenceTooltip: function (vScore) {
+                    if (vScore === null || vScore === undefined) {
+                        return text("confidenceNoneTooltip");
+                    }
+                    var n = Number(vScore);
+                    var sPercent = Math.round(n * 100) + " %";
+                    if (n >= 0.8) {
+                        return text("confidenceHighTooltip", [sPercent]);
+                    }
+                    return n >= 0.5
+                        ? text("confidenceMediumTooltip", [sPercent])
+                        : text("confidenceLowTooltip", [sPercent]);
                 },
                 // A row blocks promotion when the AI is unsure (confidence < 0.5)
                 // AND no human has reviewed it yet (still PROPOSED) — mirrors the
@@ -71,7 +98,7 @@ sap.ui.define(
                 // (no `this.` sibling calls). The gate is inlined in each.
                 aiStatusText: function (sStatus, vScore) {
                     var review = sStatus === "PROPOSED" && vScore != null && Number(vScore) < 0.5;
-                    return review ? sStatus + " — review" : sStatus;
+                    return review ? text("aiStatusNeedsReview", [sStatus]) : sStatus;
                 },
                 aiStatusStateGated: function (sStatus, vScore) {
                     if (sStatus === "PROPOSED" && vScore != null && Number(vScore) < 0.5) {
@@ -96,13 +123,20 @@ sap.ui.define(
                 },
                 aiStatusTooltip: function (sStatus, vScore) {
                     var review = sStatus === "PROPOSED" && vScore != null && Number(vScore) < 0.5;
-                    return review
-                        ? "Low AI confidence and not yet reviewed — blocks promotion until you Accept, Edit, or Reject it."
-                        : "";
+                    return review ? text("aiStatusReviewTooltip") : "";
                 }
             },
 
+            /** Resource-bundle lookup for controller-side strings. */
+            _text: function (sKey, aArgs) {
+                return text(sKey, aArgs);
+            },
+
             onInit: function () {
+                // Capture the bundle before anything renders: the column-template
+                // formatters read it through the module-scoped `text()` helper.
+                oBundle = this.getOwnerComponent().getModel("i18n").getResourceBundle();
+
                 // The "ui" state model is created in Component.init before this view.
                 // Pick a default workspace once the Select has data (prefer OPEN ones).
                 // Careful: on a warm server the items may already be there before we
@@ -189,10 +223,13 @@ sap.ui.define(
             // — only promotion archives them (see onPromote / the service lifecycle).
             onCreateWorkspace: function () {
                 var that = this;
-                var oTitle = new Input({ placeholder: "e.g. Q4 Lab Equipment", width: "100%" });
+                var oTitle = new Input({
+                    placeholder: this._text("newWorkspaceTitlePlaceholder"),
+                    width: "100%"
+                });
 
                 var oCreateButton = new Button({
-                    text: "Create",
+                    text: this._text("createButton"),
                     type: "Emphasized",
                     enabled: false,
                     press: function () {
@@ -207,19 +244,23 @@ sap.ui.define(
                 });
 
                 var oDialog = new Dialog({
-                    title: "New Requirement Workspace",
+                    title: this._text("newWorkspaceDialogTitle"),
                     contentWidth: "26rem",
                     content: [
                         new VBox({
                             items: [
-                                new Label({ text: "Title", labelFor: oTitle, required: true }),
+                                new Label({
+                                    text: this._text("newWorkspaceTitleLabel"),
+                                    labelFor: oTitle,
+                                    required: true
+                                }),
                                 oTitle
                             ]
                         }).addStyleClass("sapUiSmallMargin")
                     ],
                     beginButton: oCreateButton,
                     endButton: new Button({
-                        text: "Cancel",
+                        text: this._text("cancelButton"),
                         press: function () {
                             oDialog.close();
                         }
@@ -240,7 +281,7 @@ sap.ui.define(
                     .created()
                     .then(function () {
                         var sNewId = oContext.getProperty("ID");
-                        MessageToast.show('Workspace "' + sTitle + '" created.');
+                        MessageToast.show(that._text("workspaceCreated", [sTitle]));
                         that._selectWorkspaceById(sNewId);
                     })
                     .catch(this._showError.bind(this));
@@ -369,12 +410,7 @@ sap.ui.define(
                 }
 
                 if (/OpenAI|embed failed|chat failed/i.test(sMessage)) {
-                    MessageBox.error(
-                        "The AI service is temporarily unavailable, so enrichment could " +
-                            "not complete. Your requirements were not changed — please try " +
-                            "again in a moment.",
-                        { details: sMessage }
-                    );
+                    MessageBox.error(this._text("aiUnavailable"), { details: sMessage });
                     return;
                 }
 
@@ -390,7 +426,7 @@ sap.ui.define(
                 });
                 Promise.all(aPatches)
                     .then(function () {
-                        MessageToast.show(aPatches.length + " requirement(s) accepted.");
+                        MessageToast.show(that._text("acceptedToast", [aPatches.length]));
                         that._refreshTable();
                     })
                     .catch(this._showError.bind(this));
@@ -403,16 +439,16 @@ sap.ui.define(
                     return oCtx.getProperty("ID");
                 });
                 MessageBox.confirm(
-                    "Merge " + aIds.length + " requirements? The first selected row survives and inherits all source links.",
+                    that._text("mergeConfirm", [aIds.length]),
                     {
-                        title: "Merge Requirements",
+                        title: that._text("mergeDialogTitle"),
                         onClose: function (sAction) {
                             if (sAction !== MessageBox.Action.OK) {
                                 return;
                             }
                             that._callAction("merge", { ids: aIds })
                                 .then(function () {
-                                    MessageToast.show("Requirements merged.");
+                                    MessageToast.show(that._text("mergedToast"));
                                     that._refreshTable();
                                 })
                                 .catch(that._showError.bind(that));
@@ -426,7 +462,7 @@ sap.ui.define(
                 var sId = this._selectedContexts()[0].getProperty("ID");
                 this._callAction("split", { id: sId })
                     .then(function () {
-                        MessageToast.show("Requirement split — adjust quantities on both rows.");
+                        MessageToast.show(that._text("splitToast"));
                         that._refreshTable();
                     })
                     .catch(this._showError.bind(this));
@@ -437,7 +473,7 @@ sap.ui.define(
                 var sId = this._selectedContexts()[0].getProperty("ID");
                 this._callAction("reject", { id: sId })
                     .then(function () {
-                        MessageToast.show("AI proposal rejected — fields cleared for manual entry.");
+                        MessageToast.show(that._text("rejectedToast"));
                         that._refreshTable();
                     })
                     .catch(this._showError.bind(this));
@@ -464,7 +500,7 @@ sap.ui.define(
                     oPage.setBusy(true);
                     this._callAction("regenerate", { id: sId })
                         .then(function () {
-                            MessageToast.show("AI enrichment regenerated — review the new proposal.");
+                            MessageToast.show(that._text("enrichedSingleToast"));
                             that._refreshTable();
                         })
                         .catch(this._showError.bind(this))
@@ -592,7 +628,7 @@ sap.ui.define(
             _openProgressDialog: function (iTotal) {
                 var oModel = new JSONModel({
                     percent: 0,
-                    text: "Enriching 0 of " + iTotal + "…"
+                    text: this._text("enrichProgressText", [0, iTotal])
                 });
                 var oIndicator = new ProgressIndicator({
                     percentValue: "{prog>/percent}",
@@ -602,13 +638,13 @@ sap.ui.define(
                     state: "Information"
                 });
                 var oDialog = new Dialog({
-                    title: "Enriching requirements",
+                    title: this._text("enrichProgressTitle"),
                     contentWidth: "24rem",
                     // No close button — the run must finish (button is already disabled).
                     content: [
                         new VBox({
                             items: [
-                                new Text({ text: "Running AI enrichment on the selected requirements." }),
+                                new Text({ text: this._text("enrichProgressBody") }),
                                 oIndicator.addStyleClass("sapUiSmallMarginTop")
                             ]
                         }).addStyleClass("sapUiSmallMargin")
@@ -626,7 +662,7 @@ sap.ui.define(
                 }
                 var oModel = oDialog.getModel("prog");
                 oModel.setProperty("/percent", Math.round((iDone / iTotal) * 100));
-                oModel.setProperty("/text", "Enriching " + iDone + " of " + iTotal + "…");
+                oModel.setProperty("/text", this._text("enrichProgressText", [iDone, iTotal]));
             },
 
             _closeProgressDialog: function (oDialog) {
@@ -643,9 +679,7 @@ sap.ui.define(
                 var iOk = aResults.length - aFailed.length;
 
                 if (!aFailed.length) {
-                    MessageBox.success(
-                        "Enriched " + iOk + " requirement(s). Review the new proposals."
-                    );
+                    MessageBox.success(this._text("enrichSuccess", [iOk]));
                     return;
                 }
 
@@ -655,16 +689,15 @@ sap.ui.define(
                     })
                     .join(", ");
                 MessageBox.warning(
-                    "Enriched " + iOk + " of " + aResults.length + " requirement(s). " +
-                        aFailed.length + " failed: " + sNames + ". Select the failed row(s) and retry."
+                    this._text("enrichPartial", [iOk, aResults.length, aFailed.length, sNames])
                 );
             },
 
             onDelete: function () {
                 var that = this;
                 var aContexts = this._selectedContexts();
-                MessageBox.confirm("Delete " + aContexts.length + " requirement(s)?", {
-                    title: "Delete Requirements",
+                MessageBox.confirm(that._text("deleteConfirm", [aContexts.length]), {
+                    title: that._text("deleteDialogTitle"),
                     onClose: function (sAction) {
                         if (sAction !== MessageBox.Action.OK) {
                             return;
@@ -675,7 +708,7 @@ sap.ui.define(
                             })
                         )
                             .then(function () {
-                                MessageToast.show("Deleted.");
+                                MessageToast.show(that._text("deletedToast"));
                                 that.getView().getModel("ui").setProperty("/selCount", 0);
                             })
                             .catch(that._showError.bind(that));
@@ -687,9 +720,9 @@ sap.ui.define(
                 var that = this;
                 var sWorkspaceId = this.getView().getModel("ui").getProperty("/workspaceId");
                 MessageBox.confirm(
-                    "Promote all accepted/edited requirements of this workspace into a new Sourcing Project?",
+                    that._text("promoteConfirm"),
                     {
-                        title: "Promote to Sourcing Project",
+                        title: that._text("promoteDialogTitle"),
                         onClose: function (sAction) {
                             if (sAction !== MessageBox.Action.OK) {
                                 return;
@@ -705,7 +738,6 @@ sap.ui.define(
             },
 
             _onPromoted: function (oResult) {
-                var that = this;
                 var sProjectId = oResult && oResult.sourcingProjectId;
                 var iCopied = (oResult && oResult.requirementsCopied) || 0;
 
@@ -714,14 +746,15 @@ sap.ui.define(
                 this.getView().getModel("ui").setProperty("/workspaceStatus", "ARCHIVED");
                 this._refreshTable();
 
+                var sOpenProject = this._text("openProjectAction");
                 MessageBox.success(
-                    iCopied + " requirement(s) copied into the new Sourcing Project.",
+                    this._text("promotedMessage", [iCopied]),
                     {
-                        title: "Promoted",
-                        actions: ["Open Project", MessageBox.Action.CLOSE],
-                        emphasizedAction: "Open Project",
+                        title: this._text("promotedTitle"),
+                        actions: [sOpenProject, MessageBox.Action.CLOSE],
+                        emphasizedAction: sOpenProject,
                         onClose: function (sAction) {
-                            if (sAction === "Open Project" && sProjectId) {
+                            if (sAction === sOpenProject && sProjectId) {
                                 window.open(
                                     "/poc.sp.hub.sourcingproject/index.html#/SourcingProjects(" + sProjectId + ")",
                                     "_blank"
@@ -738,7 +771,7 @@ sap.ui.define(
                 var oCtx = this._selectedContexts()[0];
                 var sId = oCtx.getProperty("ID");
                 var oList = new List({
-                    noDataText: "No source links recorded for this requirement."
+                    noDataText: this._text("sourcesNoData")
                 });
                 oList.setModel(this.getView().getModel());
                 oList.bindItems({
@@ -750,9 +783,12 @@ sap.ui.define(
                             new VBox({
                                 items: [
                                     new Text({ text: "{rawSnippet}" }).addStyleClass("sapUiTinyMarginTop"),
-                                    new ObjectAttribute({ title: "Location", text: "{location}" }),
                                     new ObjectAttribute({
-                                        title: "Document",
+                                        title: this._text("sourcesLocationLabel"),
+                                        text: "{location}"
+                                    }),
+                                    new ObjectAttribute({
+                                        title: this._text("sourcesDocumentLabel"),
                                         text: "{document/fileName} ({document/originType})"
                                     })
                                 ]
@@ -762,11 +798,11 @@ sap.ui.define(
                 });
 
                 var oDialog = new Dialog({
-                    title: "Requirement Sources",
+                    title: this._text("sourcesDialogTitle"),
                     contentWidth: "36rem",
                     content: [oList],
                     endButton: new Button({
-                        text: "Close",
+                        text: this._text("closeButton"),
                         press: function () {
                             oDialog.close();
                         }
@@ -832,9 +868,24 @@ sap.ui.define(
                 var oData = oCtx.getObject();
 
                 var oDescription = new Input({ value: oData.description || "" });
-                var oQuantity = new Input({ value: oData.quantity != null ? String(oData.quantity) : "", type: "Number" });
+                var oQuantity = new Input({
+                    value: oData.quantity != null ? String(oData.quantity) : "",
+                    type: "Number",
+                    // Clear the error as soon as the user starts correcting it.
+                    liveChange: function (oEvent) {
+                        oEvent.getSource().setValueState("None");
+                    }
+                });
                 var oUnit = new Input({ value: oData.unit || "" });
-                var oDate = new Input({ value: oData.requestedDate || "", placeholder: "YYYY-MM-DD" });
+                // DatePicker, not a free-text Input: requestedDate is a CDS `Date`,
+                // and the old field was a plain Input with a "YYYY-MM-DD" placeholder
+                // — every typo went to the server verbatim. valueFormat is what the
+                // OData Date expects; displayFormat follows the user's locale.
+                var oDate = new DatePicker({
+                    value: oData.requestedDate || "",
+                    valueFormat: "yyyy-MM-dd",
+                    displayFormat: "medium"
+                });
 
                 // Material Group / Commodity: read-only inputs driven by value help
                 // (typing a code by hand invites typos / dangling FKs — the picker
@@ -843,14 +894,14 @@ sap.ui.define(
                 var oCcState = { code: oData.commodityCode_code || null };
                 var oMaterialGroup = new Input({
                     value: oData.materialGroup_code || "",
-                    placeholder: "Select a Material Group",
+                    placeholder: this._text("editMaterialGroupPlaceholder"),
                     showValueHelp: true,
                     valueHelpOnly: true,
                     valueHelpRequest: function () {
                         that._openCodeValueHelp({
                             input: oMaterialGroup,
                             state: oMgState,
-                            title: "Select Material Group",
+                            title: that._text("valueHelpMaterialGroup"),
                             entitySet: "MaterialGroups",
                             keyProp: "code",
                             textProp: "name",
@@ -860,14 +911,14 @@ sap.ui.define(
                 });
                 var oCommodity = new Input({
                     value: oData.commodityCode_code || "",
-                    placeholder: "Select a Commodity Code",
+                    placeholder: this._text("editCommodityPlaceholder"),
                     showValueHelp: true,
                     valueHelpOnly: true,
                     valueHelpRequest: function () {
                         that._openCodeValueHelp({
                             input: oCommodity,
                             state: oCcState,
-                            title: "Select Commodity Code",
+                            title: that._text("valueHelpCommodity"),
                             entitySet: "CommodityCodes",
                             keyProp: "code",
                             textProp: "description",
@@ -877,38 +928,54 @@ sap.ui.define(
                 });
 
                 var oDialog = new Dialog({
-                    title: "Edit Requirement",
+                    title: this._text("editDialogTitle"),
                     contentWidth: "26rem",
                     content: [
                         new VBox({
                             items: [
-                                new Label({ text: "Description", labelFor: oDescription }),
+                                new Label({ text: this._text("editDescription"), labelFor: oDescription }),
                                 oDescription,
-                                new Label({ text: "Quantity", labelFor: oQuantity }).addStyleClass("sapUiTinyMarginTop"),
+                                new Label({ text: this._text("editQuantity"), labelFor: oQuantity }).addStyleClass("sapUiTinyMarginTop"),
                                 oQuantity,
-                                new Label({ text: "Unit", labelFor: oUnit }).addStyleClass("sapUiTinyMarginTop"),
+                                new Label({ text: this._text("editUnit"), labelFor: oUnit }).addStyleClass("sapUiTinyMarginTop"),
                                 oUnit,
-                                new Label({ text: "Requested Date", labelFor: oDate }).addStyleClass("sapUiTinyMarginTop"),
+                                new Label({ text: this._text("editRequestedDate"), labelFor: oDate }).addStyleClass("sapUiTinyMarginTop"),
                                 oDate,
-                                new Label({ text: "Material Group", labelFor: oMaterialGroup }).addStyleClass("sapUiTinyMarginTop"),
+                                new Label({ text: this._text("editMaterialGroup"), labelFor: oMaterialGroup }).addStyleClass("sapUiTinyMarginTop"),
                                 oMaterialGroup,
-                                new Label({ text: "Commodity", labelFor: oCommodity }).addStyleClass("sapUiTinyMarginTop"),
+                                new Label({ text: this._text("editCommodity"), labelFor: oCommodity }).addStyleClass("sapUiTinyMarginTop"),
                                 oCommodity
                             ]
                         }).addStyleClass("sapUiSmallMargin")
                     ],
                     beginButton: new Button({
-                        text: "Save",
+                        text: this._text("saveButton"),
                         type: "Emphasized",
                         press: function () {
                             var aPatches = [];
-                            var sQty = oQuantity.getValue();
+                            var sQty = oQuantity.getValue().trim();
+
+                            // Validate before patching, and keep the dialog OPEN on
+                            // error. quantity is Decimal(15,3) in the schema but the
+                            // Input hands back a String: an unparseable value used to
+                            // be sent to the server verbatim and fail there, with the
+                            // dialog already closed and the user's edits lost.
+                            var fQty = sQty === "" ? null : Number(sQty);
+                            if (fQty !== null && (!isFinite(fQty) || fQty < 0)) {
+                                oQuantity.setValueState("Error");
+                                oQuantity.setValueStateText(that._text("validationQuantity"));
+                                oQuantity.focus();
+                                return;
+                            }
+                            oQuantity.setValueState("None");
+
                             // The service's before-UPDATE hook marks the row EDITED (§19, §25).
                             if (oDescription.getValue() !== (oData.description || "")) {
                                 aPatches.push(oCtx.setProperty("description", oDescription.getValue()));
                             }
                             if (sQty !== (oData.quantity != null ? String(oData.quantity) : "")) {
-                                aPatches.push(oCtx.setProperty("quantity", sQty === "" ? null : sQty));
+                                // Send a number, not the raw input string.
+                                aPatches.push(oCtx.setProperty("quantity", fQty));
                             }
                             if (oUnit.getValue() !== (oData.unit || "")) {
                                 aPatches.push(oCtx.setProperty("unit", oUnit.getValue()));
@@ -928,14 +995,14 @@ sap.ui.define(
                             }
                             Promise.all(aPatches)
                                 .then(function () {
-                                    MessageToast.show("Requirement updated (marked EDITED).");
+                                    MessageToast.show(that._text("editedToast"));
                                     that._refreshTable();
                                 })
                                 .catch(that._showError.bind(that));
                         }
                     }),
                     endButton: new Button({
-                        text: "Cancel",
+                        text: this._text("cancelButton"),
                         press: function () {
                             oDialog.close();
                         }
