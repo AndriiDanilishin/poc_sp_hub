@@ -1,5 +1,5 @@
 {
-  "welcomeFile": "/poc.sp.hub.intakehub/index.html",
+  "welcomeFile": "/pocsphubintakehub/index.html",
   "authenticationMethod": "route",
   "routes": [
     {
