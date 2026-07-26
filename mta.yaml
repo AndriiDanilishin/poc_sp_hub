@@ -27,13 +27,9 @@ modules:
     build-parameters:
       builder: npm
     properties:
-      # AI provider on CF. First deploy runs with the deterministic offline `mock`
-      # provider so the topology (xsuaa/hana/html5-repo/approuter) can be verified
-      # green with no GenAIHub destination and zero LLM cost. To go live, switch
-      # AI_PROVIDER to `destination` and create a BTP Destination named per
-      # AI_DESTINATION_NAME whose URL is an OpenAI-compatible endpoint (SAP
-      # Generative AI Hub / Azure OpenAI / proxy) — no key is baked into the deploy.
-      AI_PROVIDER: mock
+      AI_PROVIDER: destination
+      AI_CHAT_MODEL: gpt-4o-mini
+      AI_EMBED_MODEL: text-embedding-3-large
       AI_DESTINATION_NAME: GenAIHub
       AI_REDACT_PII: 'true'
     requires:
@@ -46,7 +42,7 @@ modules:
           srv-url: ${default-url}
 
   # ---------------------------------------------------------------------------
-  # HANA HDI deployer — deploys the generated tables/views into the HDI container
+  # HANA HDI deployer
   # ---------------------------------------------------------------------------
   - name: poc-sp-hub-db-deployer
     type: hdb
@@ -57,16 +53,15 @@ modules:
       - name: poc-sp-hub-db
 
   # ---------------------------------------------------------------------------
-  # Managed approuter — serves the 4 Fiori apps, handles xsuaa login + routes
-  # /api/* to the CAP service. Static content comes from the HTML5 repo.
+  # Managed approuter
   # ---------------------------------------------------------------------------
   - name: poc-sp-hub-approuter
     type: approuter.nodejs
     path: app/router
     parameters:
       keep-existing-routes: true
-      disk-quota: 256M
-      memory: 256M
+      disk-quota: 512M
+      memory: 512M
     requires:
       - name: srv-api
         group: destinations
@@ -78,7 +73,7 @@ modules:
       - name: poc-sp-hub-html5-repo-runtime
 
   # ---------------------------------------------------------------------------
-  # HTML5 apps deployer — pushes the built Fiori apps into the HTML5 repo
+  # HTML5 apps deployer — Aggregates the 4 UI zips into a resources folder
   # ---------------------------------------------------------------------------
   - name: poc-sp-hub-app-content
     type: com.sap.application.content
@@ -107,7 +102,9 @@ modules:
           name: sourcingproject
           target-path: resources/
 
-  # Each Fiori app built into a deployable HTML5 zip.
+  # ---------------------------------------------------------------------------
+  # Fiori Modules - Explicitly installing devDependencies
+  # ---------------------------------------------------------------------------
   - name: documentmanager
     type: html5
     path: app/document-manager
@@ -115,13 +112,10 @@ modules:
       build-result: dist
       builder: custom
       commands:
-        # npm install (not `npm ci`) — the Fiori apps have no committed
-        # package-lock.json, and each html5 module builds in isolation from its
-        # own `path`, so it can't rely on the npm-workspace hoisting that dev uses.
-        - npm install
+        - npm install --include=dev
         - npm run build:cf
-      supported-platforms:
-        []
+      supported-platforms: []
+
   - name: intakehub
     type: html5
     path: app/intake-hub
@@ -129,13 +123,10 @@ modules:
       build-result: dist
       builder: custom
       commands:
-        # npm install (not `npm ci`) — the Fiori apps have no committed
-        # package-lock.json, and each html5 module builds in isolation from its
-        # own `path`, so it can't rely on the npm-workspace hoisting that dev uses.
-        - npm install
+        - npm install --include=dev
         - npm run build:cf
-      supported-platforms:
-        []
+      supported-platforms: []
+
   - name: requirementworkspace
     type: html5
     path: app/requirement-workspace
@@ -143,13 +134,10 @@ modules:
       build-result: dist
       builder: custom
       commands:
-        # npm install (not `npm ci`) — the Fiori apps have no committed
-        # package-lock.json, and each html5 module builds in isolation from its
-        # own `path`, so it can't rely on the npm-workspace hoisting that dev uses.
-        - npm install
+        - npm install --include=dev
         - npm run build:cf
-      supported-platforms:
-        []
+      supported-platforms: []
+
   - name: sourcingproject
     type: html5
     path: app/sourcing-project
@@ -157,23 +145,17 @@ modules:
       build-result: dist
       builder: custom
       commands:
-        # npm install (not `npm ci`) — the Fiori apps have no committed
-        # package-lock.json, and each html5 module builds in isolation from its
-        # own `path`, so it can't rely on the npm-workspace hoisting that dev uses.
-        - npm install
+        - npm install --include=dev
         - npm run build:cf
-      supported-platforms:
-        []
+      supported-platforms: []
 
 resources:
-  # HANA Cloud HDI container.
   - name: poc-sp-hub-db
     type: com.sap.xs.hdi-container
     parameters:
       service: hana
       service-plan: hdi-shared
 
-  # xsuaa — role-templates/scopes come from xs-security.json.
   - name: poc-sp-hub-auth
     type: org.cloudfoundry.managed-service
     parameters:
@@ -184,20 +166,30 @@ resources:
         xsappname: poc-sp-hub-${space}
         tenant-mode: dedicated
 
-  # Destination service — holds the GenAIHub (OpenAI-compatible) destination and
-  # is also used by the approuter for the srv-api route.
   - name: poc-sp-hub-destination
     type: org.cloudfoundry.managed-service
     parameters:
       service: destination
       service-plan: lite
+      config:
+        init_data:
+          instance:
+            destinations:
+              - Name: GenAIHub
+                Type: HTTP
+                URL: https://api.openai.com/v1
+                ProxyType: Internet
+                Authentication: NoAuthentication
+                # Replace with real values (e.g. OAuth2ClientCredentials) once
+                # you point AI_PROVIDER at a live provider instead of "mock".
+            existing_destinations_policy: update
 
-  # HTML5 application repository (host = deploy target, runtime = served by approuter).
   - name: poc-sp-hub-html5-repo-host
     type: org.cloudfoundry.managed-service
     parameters:
       service: html5-apps-repo
       service-plan: app-host
+
   - name: poc-sp-hub-html5-repo-runtime
     type: org.cloudfoundry.managed-service
     parameters:
