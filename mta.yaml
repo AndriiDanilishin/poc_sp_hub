@@ -74,7 +74,7 @@ modules:
       - name: srv-api
     parameters:
       content:
-        instance:
+        subaccount:
           existing_destinations_policy: update
           destinations:
             - Name: poc-sp-hub-srv-api
@@ -196,7 +196,10 @@ resources:
     parameters:
       service: destination
       service-plan: lite
+      # HTML5Runtime_enabled is required for the managed approuter to resolve
+      # HTML5.DynamicDestination destinations at runtime.
       config:
+        HTML5Runtime_enabled: true
         init_data:
           instance:
             destinations:
