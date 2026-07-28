@@ -17,7 +17,30 @@
           "odataVersion": "4.0"
         }
       }
+    },
+    "crossNavigation": {
+      "inbounds": {
+        "requirementworkspace-manage": {
+          "semanticObject": "RequirementWorkspace",
+          "action": "manage",
+          "title": "{{appTitle}}",
+          "subTitle": "{{appDescription}}",
+          "icon": "sap-icon://workflow-tasks",
+          "signature": {
+            "parameters": {
+              "workspace": {
+                "required": false
+              }
+            },
+            "additionalParameters": "allowed"
+          }
+        }
+      }
     }
+  },
+  "sap.cloud": {
+    "public": true,
+    "service": "poc.sp.hub"
   },
   "sap.ui": {
     "technology": "UI5",
