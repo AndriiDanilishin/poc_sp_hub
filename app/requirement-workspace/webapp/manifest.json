@@ -11,7 +11,7 @@
     "description": "{{appDescription}}",
     "dataSources": {
       "mainService": {
-        "uri": "api/workspace/",
+        "uri": "/poc-sp-hub-srv-api/api/workspace/",
         "type": "OData",
         "settings": {
           "odataVersion": "4.0"
