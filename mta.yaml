@@ -63,10 +63,12 @@ modules:
       - name: poc-sp-hub-destination
         parameters:
           content-target: true
+      # Reuse the key the app-content module already creates. Creating a second
+      # key here makes the managed router enumerate every app twice.
       - name: poc-sp-hub-html5-repo-host
         parameters:
           service-key:
-            name: poc-sp-hub-html5-repo-host-key
+            name: poc-sp-hub-app-content-poc-sp-hub-html5-repo-host-credentials
       - name: poc-sp-hub-auth
         parameters:
           service-key:
@@ -87,7 +89,7 @@ modules:
               sap.cloud.service: poc.sp.hub
             - Name: poc-sp-hub-html5-repo-host
               ServiceInstanceName: poc-sp-hub-html5-repo-host
-              ServiceKeyName: poc-sp-hub-html5-repo-host-key
+              ServiceKeyName: poc-sp-hub-app-content-poc-sp-hub-html5-repo-host-credentials
               sap.cloud.service: poc.sp.hub
             - Name: poc-sp-hub-auth
               Authentication: OAuth2UserTokenExchange
