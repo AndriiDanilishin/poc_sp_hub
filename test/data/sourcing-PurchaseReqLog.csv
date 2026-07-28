@@ -1,2 +1,4 @@
 ID;createdAt;createdBy;project_ID;s4RequisitionNumber;payloadSent;responseReceived;status;errorMsg
 05000000-0000-4000-8000-000000000001;2026-07-16T09:15:00+0200;manager;e1000000-0000-4000-8000-000000000001;4500001234;{plant:1010, purchasingGroup:001, items:2};Purchase Requisition 4500001234 created;SUCCESS;
+05000000-0000-4000-8000-000000000002;2026-06-15T11:02:00+0200;manager;e1000000-0000-4000-8000-000000000004;;{plant:1010, purchasingGroup:002, items:2};Material group MG-LAB-002 is not released in plant 1010;FAILED;S4 rejected the requisition: material group not released for the requesting plant
+05000000-0000-4000-8000-000000000003;2026-06-15T13:40:00+0200;manager;e1000000-0000-4000-8000-000000000004;4500001987;{plant:1010, purchasingGroup:002, items:2};Purchase Requisition 4500001987 created;SUCCESS;

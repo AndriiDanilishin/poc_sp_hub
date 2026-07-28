@@ -1,3 +1,8 @@
 ID;project_ID;description;category;severity;mitigation;aiGenerated
 03000000-0000-4000-8000-000000000001;e1000000-0000-4000-8000-000000000001;Furniture lead time may exceed 8 weeks;Delivery;Medium;Order early and confirm stock availability with supplier;true
 03000000-0000-4000-8000-000000000002;e1000000-0000-4000-8000-000000000001;Budget overrun if scope expands to a third floor;Financial;Low;Cap purchase order at approved 25000 EUR budget;false
+03000000-0000-4000-8000-000000000003;e1000000-0000-4000-8000-000000000002;Ultra-low freezer lead time historically exceeds 12 weeks;Delivery;High;Place order immediately after approval and request a delivery commitment;true
+03000000-0000-4000-8000-000000000004;e1000000-0000-4000-8000-000000000002;Budget exceeds the 25000 EUR capital expenditure threshold;Financial;Critical;Obtain finance sign-off before approving the sourcing project per POL-004;true
+03000000-0000-4000-8000-000000000005;e1000000-0000-4000-8000-000000000002;Installation requires dedicated power circuits not yet surveyed;Technical;Medium;Commission a facilities power survey before delivery;false
+03000000-0000-4000-8000-000000000006;e1000000-0000-4000-8000-000000000003;Single-source dependency on Dell for the full volume;Supply;Medium;Split award with Lenovo as approved second source;true
+03000000-0000-4000-8000-000000000007;e1000000-0000-4000-8000-000000000003;Component shortages may delay 4K monitor delivery;Delivery;Low;Confirm stock before issuing the purchase requisition;true

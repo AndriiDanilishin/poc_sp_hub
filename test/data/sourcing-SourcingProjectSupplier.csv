@@ -1,2 +1,8 @@
 ID;project_ID;supplier_ID;rationale;confidenceScore;aiGenerated
-02000000-0000-4000-8000-000000000001;e1000000-0000-4000-8000-000000000001;1000002;Preferred office supplier under existing framework agreement;0.79;true
+02000000-0000-4000-8000-000000000001;e1000000-0000-4000-8000-000000000001;1000012;Preferred office furniture supplier under existing framework agreement;0.79;true
+02000000-0000-4000-8000-000000000002;e1000000-0000-4000-8000-000000000001;1000013;Alternative ergonomic furniture vendor with comparable rating;0.64;true
+02000000-0000-4000-8000-000000000003;e1000000-0000-4000-8000-000000000002;1000008;Thermo Fisher supplied the 2026 cold storage expansion with proven -80C units;0.88;true
+02000000-0000-4000-8000-000000000004;e1000000-0000-4000-8000-000000000002;1000005;Eppendorf offers comparable ultra-low freezers as a second source;0.61;true
+02000000-0000-4000-8000-000000000005;e1000000-0000-4000-8000-000000000003;1000003;Dell supplied the 2025 laptop rollout under the existing IT framework;0.92;true
+02000000-0000-4000-8000-000000000006;e1000000-0000-4000-8000-000000000003;1000009;Lenovo is the approved alternative source for engineering laptops;0.70;true
+02000000-0000-4000-8000-000000000007;e1000000-0000-4000-8000-000000000004;1000002;Fisher Scientific is the preferred supplier for lab disposables and PPE;0.85;true

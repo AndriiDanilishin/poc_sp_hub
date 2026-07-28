@@ -1,2 +1,5 @@
 ID;createdAt;createdBy;title;description;category;materialGroup_code;status;priority;timelineStart;timelineEnd;budgetAmount;budgetCurrency
 e1000000-0000-4000-8000-000000000001;2026-07-16T09:00:00+0200;requester;Office Refresh 2026;Replace worn office furniture across two floors with ergonomic chairs and standing desks.;Indirect;MG-OFF-001;APPROVED;Medium;2026-08-01;2026-10-31;25000.00;EUR
+e1000000-0000-4000-8000-000000000002;2026-07-20T10:15:00+0200;requester;Lab Cold Storage Expansion;Additional ultra-low freezer capacity for the expanding biobank. Draft pending AI enrichment and review.;Direct;MG-LAB-004;DRAFT;High;2026-09-01;2026-11-30;96000.00;EUR
+e1000000-0000-4000-8000-000000000003;2026-07-22T14:30:00+0200;requester;IT Laptop Replacement Wave 3;Scheduled three-year replacement of engineering laptops and docking stations.;Indirect;MG-IT-001;DRAFT;Medium;2026-09-15;2026-11-15;145000.00;EUR
+e1000000-0000-4000-8000-000000000004;2026-06-10T08:00:00+0200;manager;Q2 Lab Consumables Framework;Framework agreement for recurring lab consumables and PPE. Already submitted to S/4HANA.;Direct;MG-LAB-002;SUBMITTED;Low;2026-06-15;2026-08-31;18500.00;EUR

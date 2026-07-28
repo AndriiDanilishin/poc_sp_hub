@@ -1,0 +1,16 @@
+code;name;category
+MG-LAB-001;Laboratory Instruments;Lab
+MG-LAB-002;Lab Consumables & PPE;Lab
+MG-LAB-003;Lab Chemicals & Reagents;Lab
+MG-LAB-004;Cold Storage & Cryogenics;Lab
+MG-OFF-001;Office Furniture & Supplies;Office
+MG-OFF-002;Printing & Stationery;Office
+MG-IT-001;IT Hardware;IT
+MG-IT-002;IT Peripherals & Accessories;IT
+MG-IT-003;Software & Licenses;IT
+MG-IT-004;Network & Datacenter Equipment;IT
+MG-FAC-001;Facility Maintenance Services;Facilities
+MG-FAC-002;Cleaning & Janitorial Supplies;Facilities
+MG-SRV-001;Professional & Consulting Services;Services
+MG-SRV-002;Logistics & Freight Services;Services
+MG-SAF-001;Safety & Protective Equipment;Safety

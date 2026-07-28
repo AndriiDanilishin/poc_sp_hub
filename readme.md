@@ -20,3 +20,16 @@ It contains these folders and files, following our recommended project layout:
 ## Learn More
 
 Learn more at <https://cap.cloud.sap>.
+
+
+https://16a0389dtrial-dev-poc-sp-hub-approuter.cfapps.us10-003.hana.ondemand.com/pocsphubintakehub/index.html
+
+
+https://16a0389dtrial-dev-poc-sp-hub-approuter.cfapps.us10-003.hana.ondemand.com/pocsphubdocumentmanager/index.html
+
+
+https://16a0389dtrial-dev-poc-sp-hub-approuter.cfapps.us10-003.hana.ondemand.com/pocsphubrequirementworkspace/index.html
+
+
+https://16a0389dtrial-dev-poc-sp-hub-approuter.cfapps.us10-003.hana.ondemand.com/pocsphubsourcingproject/index.html
+

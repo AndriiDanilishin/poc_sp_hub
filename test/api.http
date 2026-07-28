@@ -30,6 +30,13 @@
 @reqAccepted   = c1000000-0000-4000-8000-000000000003
 @reqLowConf    = c1000000-0000-4000-8000-000000000004
 @projApproved  = e1000000-0000-4000-8000-000000000001
+# DRAFT projects — the only state where generateDraft / approve are allowed.
+# Both carry Requirement rows, so generateDraft passes its "at least one
+# requirement" guard. projDraftIT is the larger one (3 requirements).
+@projDraftLab  = e1000000-0000-4000-8000-000000000002
+@projDraftIT   = e1000000-0000-4000-8000-000000000003
+# Already SUBMITTED — terminal state, rejects both generateDraft and approve.
+@projSubmitted = e1000000-0000-4000-8000-000000000004
 # A risk belonging to the APPROVED project above — used by the freeze guards.
 @riskApproved  = 03000000-0000-4000-8000-000000000001
 
@@ -563,6 +570,28 @@ GET {{host}}/api/sourcing/Suppliers?$top=5
 GET {{host}}/api/sourcing/PurchaseReqLogs
 {{manager}}
 
+### All projects by status — 1 APPROVED, 2 DRAFT, 1 SUBMITTED (lifecycle coverage)
+GET {{host}}/api/sourcing/SourcingProjects?$select=title,status,priority,budgetAmount&$orderby=status
+{{manager}}
+
+### DRAFT project with its children — the Object Page's full read
+GET {{host}}/api/sourcing/SourcingProjects/{{projDraftIT}}?$expand=requirements,risks,suggestedSuppliers,commodityCodes
+{{manager}}
+
+### Guard: generateDraft on SUBMITTED project — terminal -> expect 409
+POST {{host}}/api/sourcing/SourcingProjects({{projSubmitted}})/SourcingProjectService.generateDraft
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### Guard: approve a SUBMITTED project -> expect 409
+POST {{host}}/api/sourcing/SourcingProjects({{projSubmitted}})/SourcingProjectService.approve
+{{manager}}
+Content-Type: application/json
+
+{}
+
 ### Guard: generateDraft on APPROVED project — frozen -> expect 409
 POST {{host}}/api/sourcing/SourcingProjects({{projApproved}})/SourcingProjectService.generateDraft
 {{manager}}
@@ -682,10 +711,11 @@ GET {{host}}/api/knowledge/listByCategory(category='MaterialGroupCatalog')
 # NOTE: srv/server.js also auto-runs reindex({onlyMissing:true}) on startup, so a
 # fresh DB self-heals its embeddings without this call. Use this to force a full
 # re-embed (e.g. after changing the embed model / dimensions, or after expanding the
-# seed corpus). The seed corpus has 15 KnowledgeDocuments across MaterialGroupCatalog
-# (MG-LAB-001/002, MG-OFF-001, MG-IT-001), CommodityTaxonomy (41100000/42130000/
-# 44100000/43210000), SupplierProfile, Policy and PastProject — so lab consumables,
-# instruments, office and IT items each ground to a distinct material group + commodity.
+# seed corpus). The corpus now ships from db/data/ (so it reaches HANA, not just the
+# local sqlite dev DB) and holds 48 KnowledgeDocuments: MaterialGroupCatalog covering
+# all 15 material groups, CommodityTaxonomy over the 18 UNSPSC codes, 11 SupplierProfile,
+# 5 Policy, 4 Guideline (used by project-drafting) and 5 PastProject — so lab, office,
+# IT, facilities, services and safety items each ground to a distinct group + commodity.
 POST {{host}}/api/knowledge/reindex
 {{curator}}
 Content-Type: application/json
