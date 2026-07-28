@@ -53,24 +53,48 @@ modules:
       - name: poc-sp-hub-db
 
   # ---------------------------------------------------------------------------
-  # Managed approuter
+  # Destination content — registers the "srv-api" destination that each app's
+  # xs-app.json routes /api/* to. Consumed by the MANAGED approuter provided by
+  # SAP Build Work Zone; there is no standalone approuter module by design.
   # ---------------------------------------------------------------------------
-  - name: poc-sp-hub-approuter
-    type: approuter.nodejs
-    path: app/router
-    parameters:
-      keep-existing-routes: true
-      disk-quota: 512M
-      memory: 512M
+  - name: poc-sp-hub-destination-content
+    type: com.sap.application.content
     requires:
-      - name: srv-api
-        group: destinations
-        properties:
-          name: srv-api
-          url: ~{srv-url}
-          forwardAuthToken: true
+      - name: poc-sp-hub-destination
+        parameters:
+          content-target: true
+      - name: poc-sp-hub-html5-repo-host
+        parameters:
+          service-key:
+            name: poc-sp-hub-html5-repo-host-key
       - name: poc-sp-hub-auth
-      - name: poc-sp-hub-html5-repo-runtime
+        parameters:
+          service-key:
+            name: poc-sp-hub-auth-key
+      - name: srv-api
+    parameters:
+      content:
+        instance:
+          existing_destinations_policy: update
+          destinations:
+            - Name: poc-sp-hub-srv-api
+              URL: ~{srv-api/srv-url}
+              Authentication: OAuth2UserTokenExchange
+              TokenServiceInstanceName: poc-sp-hub-auth
+              TokenServiceKeyName: poc-sp-hub-auth-key
+              HTML5.DynamicDestination: true
+              HTML5.ForwardAuthToken: true
+            - Name: poc-sp-hub-html5-repo-host
+              ServiceInstanceName: poc-sp-hub-html5-repo-host
+              ServiceKeyName: poc-sp-hub-html5-repo-host-key
+              sap.cloud.service: poc.sp.hub
+            - Name: poc-sp-hub-auth
+              Authentication: OAuth2UserTokenExchange
+              ServiceInstanceName: poc-sp-hub-auth
+              ServiceKeyName: poc-sp-hub-auth-key
+              sap.cloud.service: poc.sp.hub
+    build-parameters:
+      no-source: true
 
   # ---------------------------------------------------------------------------
   # HTML5 apps deployer — Aggregates the 4 UI zips into a resources folder
@@ -190,8 +214,6 @@ resources:
       service: html5-apps-repo
       service-plan: app-host
 
-  - name: poc-sp-hub-html5-repo-runtime
-    type: org.cloudfoundry.managed-service
-    parameters:
-      service: html5-apps-repo
-      service-plan: app-runtime 
+  # NOTE: the html5-apps-repo "app-runtime" plan is intentionally absent. It is
+  # only needed by a standalone approuter; the managed approuter provided by SAP
+  # Build Work Zone brings its own runtime. 
