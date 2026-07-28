@@ -84,6 +84,7 @@ modules:
               TokenServiceKeyName: poc-sp-hub-auth-key
               HTML5.DynamicDestination: true
               HTML5.ForwardAuthToken: true
+              sap.cloud.service: poc.sp.hub
             - Name: poc-sp-hub-html5-repo-host
               ServiceInstanceName: poc-sp-hub-html5-repo-host
               ServiceKeyName: poc-sp-hub-html5-repo-host-key
