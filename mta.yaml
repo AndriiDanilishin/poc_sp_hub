@@ -24,6 +24,10 @@ modules:
     parameters:
       buildpack: nodejs_buildpack
       instances: 1
+      # More memory shortens Node/CAP startup, which shrinks the window where a
+      # cold-started instance 404s the first $metadata request from a Fiori app.
+      memory: 1G
+      disk-quota: 1G
     build-parameters:
       builder: npm
     properties:
