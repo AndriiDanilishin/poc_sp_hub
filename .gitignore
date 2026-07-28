@@ -11,6 +11,9 @@ app/*/dist/
 .cdsrc-private.json
 default-*.json
 *.sqlite
+# SQLite WAL-mode sidecar files (*.sqlite-wal is not matched by *.sqlite)
+*.sqlite-wal
+*.sqlite-shm
 
 # Secrets — never commit API keys. .env.example (committed) is the template.
 .env
