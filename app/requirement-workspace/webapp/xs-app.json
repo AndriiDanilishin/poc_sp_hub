@@ -3,7 +3,7 @@
   "authenticationMethod": "route",
   "routes": [
     {
-      "source": "^/api/(.*)$",
+      "source": "^(?:/[^/]+)?/api/(.*)$",
       "target": "/api/$1",
       "destination": "poc-sp-hub-srv-api",
       "authenticationType": "xsuaa",
