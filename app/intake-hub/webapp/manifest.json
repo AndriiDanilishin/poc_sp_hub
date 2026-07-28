@@ -12,7 +12,7 @@
     "resources": "resources.json",
     "dataSources": {
       "mainService": {
-        "uri": "/api/intake/",
+        "uri": "api/intake/",
         "type": "OData",
         "settings": {
           "annotations": [],
@@ -107,12 +107,17 @@
         {
           "pattern": ":?query:",
           "name": "SourceDocumentsList",
-          "target": ["SourceDocumentsList"]
+          "target": [
+            "SourceDocumentsList"
+          ]
         },
         {
           "pattern": "SourceDocuments({key}):?query:",
           "name": "SourceDocumentsObjectPage",
-          "target": ["SourceDocumentsList", "SourceDocumentsObjectPage"]
+          "target": [
+            "SourceDocumentsList",
+            "SourceDocumentsObjectPage"
+          ]
         }
       ],
       "targets": {

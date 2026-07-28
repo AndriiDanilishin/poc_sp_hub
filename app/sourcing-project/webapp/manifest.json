@@ -12,7 +12,7 @@
     "resources": "resources.json",
     "dataSources": {
       "mainService": {
-        "uri": "/api/sourcing/",
+        "uri": "api/sourcing/",
         "type": "OData",
         "settings": {
           "annotations": [],
