@@ -12,7 +12,7 @@
     "resources": "resources.json",
     "dataSources": {
       "mainService": {
-        "uri": "/poc-sp-hub-srv-api/api/intake/",
+        "uri": "api/intake/",
         "type": "OData",
         "settings": {
           "annotations": [],

@@ -17,7 +17,7 @@
     },
     "dataSources": {
       "mainService": {
-        "uri": "/poc-sp-hub-srv-api/api/documents/",
+        "uri": "api/documents/",
         "type": "OData",
         "settings": {
           "annotations": [],
