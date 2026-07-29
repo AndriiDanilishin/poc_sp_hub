@@ -21,6 +21,9 @@
     }
   ],
   "attributes": [],
+  "authorities": [
+    "uaa.user"
+  ],
   "role-templates": [
     {
       "name": "ProcurementRequester",
