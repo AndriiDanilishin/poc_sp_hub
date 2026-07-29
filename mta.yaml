@@ -104,6 +104,32 @@ modules:
       no-source: true
 
   # ---------------------------------------------------------------------------
+  # Standalone approuter. Added alongside the managed Work Zone router because
+  # the managed one returns an opaque 500 on /api/* with no logs reachable from
+  # this space (its logs live in the Work Zone subscription). This module runs in
+  # our own space, so `cf logs poc-sp-hub-approuter` shows the real routing and
+  # token-exchange errors. Apps are served straight out of the html5-apps-repo
+  # via the app-runtime plan, so no UI module needs rebuilding.
+  # ---------------------------------------------------------------------------
+  - name: poc-sp-hub-approuter
+    type: approuter.nodejs
+    path: approuter
+    parameters:
+      memory: 256M
+      disk-quota: 512M
+      keep-existing-routes: true
+    requires:
+      - name: poc-sp-hub-auth
+      - name: poc-sp-hub-destination
+      - name: poc-sp-hub-html5-repo-runtime
+      - name: srv-api
+        group: destinations
+        properties:
+          name: srv-api
+          url: ~{srv-url}
+          forwardAuthToken: true
+
+  # ---------------------------------------------------------------------------
   # HTML5 apps deployer — Aggregates the 4 UI zips into a resources folder
   # ---------------------------------------------------------------------------
   - name: poc-sp-hub-app-content
@@ -214,9 +240,15 @@ resources:
                 URL: https://api.openai.com/v1
                 ProxyType: Internet
                 Authentication: NoAuthentication
-                # Replace with real values (e.g. OAuth2ClientCredentials) once
-                # you point AI_PROVIDER at a live provider instead of "mock".
-            existing_destinations_policy: update
+                # The API key is NOT declared here — it is added by hand in the
+                # cockpit as an additional property named `apiKey` (read by
+                # srv/ai/llm-client.js resolveDestination), so no secret is
+                # committed to git.
+            # `ignore` (not `update`) so redeploys leave the hand-maintained
+            # GenAIHub destination — and its apiKey property — untouched. With
+            # `update`, every deploy would overwrite it back to the keyless
+            # definition above and all AI calls would start failing with 401.
+            existing_destinations_policy: ignore
 
   - name: poc-sp-hub-html5-repo-host
     type: org.cloudfoundry.managed-service
@@ -224,6 +256,11 @@ resources:
       service: html5-apps-repo
       service-plan: app-host
 
-  # NOTE: the html5-apps-repo "app-runtime" plan is intentionally absent. It is
-  # only needed by a standalone approuter; the managed approuter provided by SAP
-  # Build Work Zone brings its own runtime. 
+  # Runtime plan for the STANDALONE approuter (poc-sp-hub-approuter) to read the
+  # deployed UI bundles out of the html5-apps-repo. The managed Work Zone router
+  # brings its own runtime and does not use this; both can coexist.
+  - name: poc-sp-hub-html5-repo-runtime
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-runtime 

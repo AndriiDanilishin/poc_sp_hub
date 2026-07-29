@@ -1,0 +1,15 @@
+{
+  "name": "poc-sp-hub-approuter",
+  "version": "1.0.0",
+  "description": "Standalone approuter — serves the Fiori apps from html5-apps-repo and proxies /api/* to the CAP service",
+  "private": true,
+  "engines": {
+    "node": "^24"
+  },
+  "dependencies": {
+    "@sap/approuter": "^20"
+  },
+  "scripts": {
+    "start": "node node_modules/@sap/approuter/approuter.js"
+  }
+}
