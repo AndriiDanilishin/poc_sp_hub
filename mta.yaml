@@ -89,7 +89,12 @@ modules:
               TokenServiceInstanceName: poc-sp-hub-auth
               TokenServiceKeyName: poc-sp-hub-auth-key
               HTML5.DynamicDestination: true
-              HTML5.ForwardAuthToken: true
+              # NOTE: HTML5.ForwardAuthToken must NOT be set here. The approuter
+              # rejects the whole destination with "ForwardAuthToken parameter
+              # cannot be used in destinations with authentication type not equal
+              # NoAuthentication" and every /api/* call fails with a bare 500.
+              # OAuth2UserTokenExchange already forwards the user identity by
+              # exchanging the token, so forwarding is redundant as well as illegal.
               sap.cloud.service: poc.sp.hub
             - Name: poc-sp-hub-html5-repo-host
               ServiceInstanceName: poc-sp-hub-html5-repo-host
@@ -127,7 +132,11 @@ modules:
         properties:
           name: srv-api
           url: ~{srv-url}
-          forwardAuthToken: true
+          # forwardAuthToken deliberately omitted — see the note on the
+          # poc-sp-hub-srv-api destination above. The route's
+          # authenticationType: xsuaa already puts the user's token on the
+          # request; setting this too makes the approuter reject the destination.
+          forwardAuthToken: false
 
   # ---------------------------------------------------------------------------
   # HTML5 apps deployer — Aggregates the 4 UI zips into a resources folder
