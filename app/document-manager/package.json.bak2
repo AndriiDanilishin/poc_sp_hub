@@ -8,14 +8,15 @@
     "sapui5"
   ],
   "main": "webapp/index.html",
+  "dependencies": {},
   "devDependencies": {
+    "@ui5/cli": "^4.0.58",
+    "@sap/ux-ui5-tooling": "1",
     "@sap-ux/eslint-plugin-fiori-tools": "^10.0.0",
-    "@sap/ux-ui5-tooling": "1.22.0",
-    "@ui5/cli": "^4.0.33",
     "eslint": "^10"
   },
   "scripts": {
     "deploy-config": "npx -p @sap/ux-ui5-tooling fiori add deploy-config cf",
-    "build:cf": "ui5 build --clean-dest --dest dist --include-task=generateManifestBundle generateCachebusterInfo && cd dist && zip -qr documentmanager.zip . -x documentmanager.zip && cd .."
+    "build:cf": "ui5 build --clean-dest --dest dist --include-task=generateManifestBundle generateCachebusterInfo && cd dist && zip -qr ../dist-content.zip . && cd .."
   }
 }
