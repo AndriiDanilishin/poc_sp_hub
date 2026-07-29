@@ -5,15 +5,15 @@
     "@cap-js/hana": "^2.8",
     "@sap-cloud-sdk/connectivity": "^3",
     "@sap-cloud-sdk/http-client": "^3",
-    "@sap/cds": "^9",
+    "@sap/cds": "10.0.5",
     "@sap/xssec": "^4",
     "mbt": "^1.2.49",
     "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
     "@cap-js/sqlite": "^2.4",
-    "@sap/cds-dk": "^10.0.5",
-    "cds-plugin-ui5": "^0.17.0",
+    "@sap/cds-dk": "10.0.6",
+    "cds-plugin-ui5": "0.13.6",
     "eslint": "^10",
     "prettier": "^3"
   },
