@@ -3,7 +3,7 @@
   "authenticationMethod": "route",
   "routes": [
     {
-      "source": "^/api/(.*)$",
+      "source": "^(?:/[\\w.-]+)?/api/(.*)$",
       "target": "/api/$1",
       "destination": "srv-api",
       "authenticationType": "xsuaa",
