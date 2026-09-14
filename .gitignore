@@ -24,6 +24,7 @@ default-*.json
 mta_archives/
 *_mta_build_tmp
 *.mtar
+mta-op-*/
 
 # Claude
 .claude/
