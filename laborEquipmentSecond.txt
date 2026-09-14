@@ -1,0 +1,5 @@
+1	Compound Laboratory Microscope (LED Illumination)	3
+2	Chemical Splash Safety Goggles	2
+3	Laboratory Beaker Set (50 mL, 100 mL, 250 mL, 500 mL)	2 sets
+4	Glass Test Tubes with Rack (24-Piece Set)	2 sets
+5	Digital Laboratory Balance (0.01 g Precision)	1

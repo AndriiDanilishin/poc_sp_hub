@@ -4,9 +4,10 @@ sap.ui.define(
     "sap/m/MessageBox",
     "sap/m/MessageToast",
     "poc/sp/hub/intakehub/ext/lib/ActionRunner",
-    "poc/sp/hub/intakehub/ext/lib/WorkspacePicker"
+    "poc/sp/hub/intakehub/ext/lib/WorkspacePicker",
+    "poc/sp/hub/intakehub/ext/lib/CrossAppNavigation"
   ],
-  function (Fragment, MessageBox, MessageToast, ActionRunner, WorkspacePicker) {
+  function (Fragment, MessageBox, MessageToast, ActionRunner, WorkspacePicker, CrossAppNavigation) {
     "use strict";
 
     var CHANGE_WS_FRAGMENT_ID = "changeWorkspaceFrag";
@@ -89,9 +90,11 @@ sap.ui.define(
                   emphasizedAction: oBundle.getText("openWorkspaceAction"),
                   onClose: function (sAction) {
                     if (sAction === oBundle.getText("openWorkspaceAction") && sWorkspaceId) {
-                      window.open(
-                        "/poc.sp.hub.requirementworkspace/index.html?workspace=" + sWorkspaceId,
-                        "_blank"
+                      CrossAppNavigation.openIntent(
+                        "RequirementWorkspace",
+                        "manage",
+                        { workspace: sWorkspaceId },
+                        "/poc.sp.hub.requirementworkspace/index.html?workspace=" + sWorkspaceId
                       );
                     }
                   }

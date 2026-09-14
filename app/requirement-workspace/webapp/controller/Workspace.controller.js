@@ -18,7 +18,8 @@ sap.ui.define(
         "sap/m/ProgressIndicator",
         "sap/ui/model/json/JSONModel",
         "sap/ui/model/Filter",
-        "sap/ui/model/FilterOperator"
+        "sap/ui/model/FilterOperator",
+        "poc/sp/hub/requirementworkspace/lib/CrossAppNavigation"
     ],
     function (
         Controller,
@@ -39,7 +40,8 @@ sap.ui.define(
         ProgressIndicator,
         JSONModel,
         Filter,
-        FilterOperator
+        FilterOperator,
+        CrossAppNavigation
     ) {
         "use strict";
 
@@ -755,9 +757,12 @@ sap.ui.define(
                         emphasizedAction: sOpenProject,
                         onClose: function (sAction) {
                             if (sAction === sOpenProject && sProjectId) {
-                                window.open(
+                                CrossAppNavigation.openIntent(
+                                    "SourcingProject",
+                                    "manage",
+                                    {},
                                     "/poc.sp.hub.sourcingproject/index.html#/SourcingProjects(" + sProjectId + ")",
-                                    "_blank"
+                                    "/SourcingProjects(" + sProjectId + ")"
                                 );
                             }
                         }

@@ -236,7 +236,17 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
       }
       // The actual S/4HANA OData call lands in Phase 5 (§21). CAP is the single
       // choke point that ever talks to S/4HANA; the AI module has no path here.
-      return req.reject(501, 'SAP S/4HANA submission is not implemented yet (Phase 5)');
+      //
+      // Deliberately 400, not 501: UI5's OData V4 ODataMessageParser has a hardcoded
+      // fallback for HTTP 501 ("The server does not support the functionality required
+      // to fulfill the request") that replaces whatever message text the server sends,
+      // so a 501 here always showed that generic string in Fiori Elements regardless of
+      // what we passed to req.reject. 400 lets our actual explanation reach the user.
+      return req.reject(
+        400,
+        'Cannot send to SAP S/4HANA: this project is not yet connected to a system. ' +
+          'Submission will be available once the S/4HANA integration is enabled (Phase 5).',
+      );
     });
 
     await super.init();

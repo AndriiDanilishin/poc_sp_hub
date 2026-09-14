@@ -31,12 +31,26 @@ service IntakeService @(path: '/api/intake', requires: 'authenticated-user') {
             // human-readable name (e.g. "HTTP smoke ws") instead of the raw UUID,
             // via TextArrangement (see annotations.cds).
             workspace.title as workspaceTitle : String,
-            // Deep link to the Requirement Workspace app, built here rather than
-            // via odata.concat in the annotation: concatenating the Guid-typed
-            // workspace_ID made Fiori Elements derive the link's `enabled` from a
-            // Guid and throw "Don't know how to format ... Guid to boolean" on
-            // every Object Page load. A ready-made String sidesteps the coercion.
-            '/poc.sp.hub.requirementworkspace/index.html?workspace=' ||
+            // Deep link to the Requirement Workspace app: an FLP intent hash
+            // (semantic object "RequirementWorkspace", action "manage"), not a
+            // direct HTML5-repo path — a raw
+            // "/poc.sp.hub.requirementworkspace/index.html?..." path only resolves
+            // when served by the standalone approuter or html5-apps-repo directly,
+            // and 404s under the SAP Build Work Zone managed launchpad, where apps
+            // are reachable only via FLP navigation intents.
+            //
+            // NOT wired to a UI.DataFieldWithUrl (tried, then reverted): that
+            // renders a same-window <a href>, and navigating the current tab away
+            // from this FE app while it is still mounted in Work Zone's FCL shell
+            // crashed the shell's Fcl.controller.ts mid-teardown (verified live:
+            // "Cannot read properties of undefined (reading 'setProperty')").
+            // annotations.cds instead shows workspaceTitle as plain text, and the
+            // "Open Workspace" button (ext/fragment/IntakeActions.js) opens this
+            // same intent via CrossAppNavigation.openIntent in a new tab, which
+            // never disturbs this app's lifecycle. Kept as a plain String — not a
+            // clickable annotation — as an API-level convenience for callers
+            // building their own new-tab link.
+            '#RequirementWorkspace-manage?workspace=' ||
             workspace.ID                     as workspaceUrl : String,
             case status
                 when 'FAILED'     then 1

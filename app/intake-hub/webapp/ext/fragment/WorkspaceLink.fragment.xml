@@ -1,0 +1,40 @@
+<core:FragmentDefinition
+    xmlns="sap.m"
+    xmlns:core="sap.ui.core"
+>
+    <!--
+        Renders the document's workspace as a clickable link (Object Page custom
+        section — see IntakeHub's manifest.json body.sections.WorkspaceLinkSection
+        — not a UI.DataFieldWithUrl field; see the note in annotations.cds on why
+        a plain annotation-driven link is unsafe here). onPress opens the target
+        via CrossAppNavigation.openIntent in a new tab. The section's own title
+        (manifest "title": "{i18n>workspaceLinkLabel}") already labels this, so
+        the fragment itself is just the link.
+
+        press MUST use core:require + the local alias (handler.onPress), not a
+        bare dotted module-path string — a custom Object Page section fragment
+        (unlike a manifest header action) does not resolve
+        "poc.sp.hub.intakehub.ext.fragment.WorkspaceLink.onPress" as a live
+        binding: the press event silently never fires (verified live — no
+        error, no console output, click does nothing). This mirrors
+        document-manager's ChatSection.fragment.xml, the one proven-working
+        custom-section pattern in this repo.
+
+        A transparent Button, not sap.m.Link: a real Link renders a native <a>
+        with a browser-assigned href, so right-click → "Open link in new
+        window" bypasses this control's press handler (and CrossAppNavigation's
+        blank-tab-first fix) entirely, following that raw href straight into
+        the same Fcl.controller.ts crash the press handler was built to avoid
+        (verified live). A Button has no native href/context-menu navigation
+        at all, so there is no bypass path — every activation goes through
+        press.
+    -->
+    <Button
+        id="workspaceLink"
+        type="Transparent"
+        class="sapUiSmallMargin workspaceLinkButton"
+        core:require="{ handler: 'poc/sp/hub/intakehub/ext/fragment/WorkspaceLink' }"
+        text="{workspaceTitle}"
+        press="handler.onPress"
+    />
+</core:FragmentDefinition>

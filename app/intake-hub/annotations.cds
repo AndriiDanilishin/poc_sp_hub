@@ -42,15 +42,8 @@ annotate service.SourceDocuments with @(
             Criticality: statusCriticality
         },
         {Value: errorMsg, Label: 'Error Message'},
-        {
-            $Type: 'UI.DataFieldWithUrl',
-            Value: workspaceTitle,
-            Label: 'Workspace',
-            // Url comes from the service-computed workspaceUrl String; building it
-            // here with odata.concat over the Guid workspace_ID made FE try to
-            // coerce a Guid to the link's boolean `enabled` property.
-            Url  : workspaceUrl
-        },
+        // No workspaceTitle field here any more — it moved to the
+        // WorkspaceLinkFacet custom facet below, rendered as a clickable link.
     ]},
     // Raw extraction preview (§26): the document text that parsing/extraction
     // will run over. Seeded demo rows predate the content field and show empty.
@@ -58,6 +51,12 @@ annotate service.SourceDocuments with @(
         Value: content,
         Label: 'Raw Content'
     }]},
+    // WorkspaceLinkFacet (the clickable workspace name) is NOT declared here:
+    // custom-fragment Object Page sections are wired in manifest.json's
+    // content.body.sections (see document-manager's ChatSection for the
+    // established pattern in this repo), not via a CDS UI.Facets entry — a
+    // ReferenceFacet's Target must be an OData AnnotationPath, not a fragment
+    // reference.
     UI.Facets                 : [
         {
             $Type : 'UI.ReferenceFacet',
@@ -83,10 +82,10 @@ annotate service.SourceDocuments with {
     status         @title: 'Status' @readonly;
     errorMsg       @title: 'Error Message' @readonly;
     // No @title on the workspace association / its generated workspace_ID foreign
-    // key: workspace_ID is only ever used inside the DataFieldWithUrl $Path above
-    // (never rendered as a labelled field), and the human-readable name the UI
-    // shows comes from workspaceTitle. Annotating the association itself would
-    // mislabel the navigation property rather than the FK.
+    // key: both are only read programmatically (WorkspaceLink.fragment.xml /
+    // IntakeActions.js), never rendered as a labelled field — the human-readable
+    // name the UI shows comes from workspaceTitle, via the WorkspaceLinkFacet
+    // custom facet.
     workspaceTitle @title: 'Workspace';
     createdAt      @title: 'Uploaded At';
 };

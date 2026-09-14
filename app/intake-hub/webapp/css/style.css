@@ -1,0 +1,32 @@
+/* WorkspaceLink.fragment.xml renders a transparent sap.m.Button (not
+   sap.m.Link) so right-click "Open in new window" can't bypass the press
+   handler's safe new-tab navigation (see the fragment's own comment for the
+   full history). This class makes that Button look like a plain link —
+   blue text, no border/background/padding chrome — so the visual stays a
+   link even though the control underneath is a Button. */
+.sapUiSizeCompact .workspaceLinkButton,
+.workspaceLinkButton {
+  border: none;
+  background: transparent;
+  padding: 0;
+  min-width: 0;
+  height: auto;
+}
+
+.workspaceLinkButton .sapMBtnContent,
+.workspaceLinkButton .sapMBtnInner {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.workspaceLinkButton .sapMBtnDefault .sapMBtnContent,
+.workspaceLinkButton .sapMBtnText {
+  color: var(--sapLinkColor, #0a6ed1);
+  text-decoration: underline;
+  font-weight: normal;
+}
+
+.workspaceLinkButton:hover .sapMBtnText {
+  color: var(--sapLinkColor_Hover, #085caf);
+}

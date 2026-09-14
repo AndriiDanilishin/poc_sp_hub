@@ -93,7 +93,11 @@
       }
     },
     "resources": {
-      "css": []
+      "css": [
+        {
+          "uri": "css/style.css"
+        }
+      ]
     },
     "routing": {
       "config": {
@@ -183,6 +187,18 @@
                       "text": "{i18n>changeWorkspaceActionButton}",
                       "enabled": "{= ${path: 'status', targetType: 'any'} !== 'EXTRACTED' }",
                       "visible": true
+                    }
+                  }
+                },
+                "body": {
+                  "sections": {
+                    "WorkspaceLinkSection": {
+                      "template": "poc.sp.hub.intakehub.ext.fragment.WorkspaceLink",
+                      "position": {
+                        "placement": "After",
+                        "anchor": "GeneralInfoFacet"
+                      },
+                      "title": "{i18n>workspaceLinkLabel}"
                     }
                   }
                 }

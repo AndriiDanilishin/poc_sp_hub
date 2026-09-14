@@ -606,7 +606,7 @@ Content-Type: application/json
 
 {}
 
-### submitToS4 on the APPROVED project — deliberate stub -> expect 501 (Phase 5)
+### submitToS4 on the APPROVED project — deliberate stub -> expect 400 (system not connected, Phase 5)
 POST {{host}}/api/sourcing/SourcingProjects({{projApproved}})/SourcingProjectService.submitToS4
 {{manager}}
 Content-Type: application/json
