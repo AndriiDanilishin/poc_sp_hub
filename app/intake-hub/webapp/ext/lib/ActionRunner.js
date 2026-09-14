@@ -21,7 +21,17 @@ sap.ui.define([], function () {
      * @returns {Promise<object|undefined>} the action's returned entity/complex value
      */
     invoke: function (oModel, sActionName, mParameters) {
-      var oAction = oModel.bindContext("/" + sActionName + "(...)");
+      // $direct, not the default $auto batch group: inside a batch changeset,
+      // UI5's V4 model does not reliably attach the parsed OData error body to
+      // the rejected execute() error — `.error` comes back undefined and
+      // `.message` falls back to the bare HTTP reason phrase (e.g. "Not Found"
+      // instead of CAP's "RequirementWorkspace <id> not found"). A direct
+      // request always gets the full body attached. Same root cause as the
+      // Requirement Workspace app's bulk-enrichment $direct usage, different
+      // symptom (lost error text instead of cancelled requests).
+      var oAction = oModel.bindContext("/" + sActionName + "(...)", null, {
+        $$groupId: "$direct"
+      });
       Object.keys(mParameters || {}).forEach(function (sKey) {
         oAction.setParameter(sKey, mParameters[sKey]);
       });
@@ -67,8 +77,16 @@ sap.ui.define([], function () {
       if (typeof vMessage !== "string" || !vMessage.trim()) {
         return sFallback;
       }
-      // A bare HTTP status line carries no information the fallback doesn't.
-      if (/^(Network Error|Request failed|HTTP request failed)/i.test(vMessage)) {
+      // A bare HTTP status line or generic reason phrase carries no information
+      // the fallback doesn't — UI5's V4 model sometimes rejects with only this
+      // (see the $direct comment in invoke() above) instead of CAP's real
+      // req.reject(...) text, so surfacing it verbatim would show the user
+      // "Not Found" instead of an actionable message.
+      if (
+        /^(Network Error|Request failed|HTTP request failed|Not Found|Bad Request|Forbidden|Unauthorized|Conflict|Internal Server Error)$/i.test(
+          vMessage.trim()
+        )
+      ) {
         return sFallback;
       }
       return vMessage;

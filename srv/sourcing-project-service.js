@@ -244,8 +244,8 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
       // what we passed to req.reject. 400 lets our actual explanation reach the user.
       return req.reject(
         400,
-        'Cannot send to SAP S/4HANA: this project is not yet connected to a system. ' +
-          'Submission will be available once the S/4HANA integration is enabled (Phase 5).',
+        "Submission to SAP S/4HANA is not available yet — this environment isn't " +
+          'connected to an S/4HANA system.',
       );
     });
 

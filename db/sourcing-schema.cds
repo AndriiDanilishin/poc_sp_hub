@@ -19,7 +19,17 @@ entity SourceDocument : cuid, managed {
         Text;
     };
     fileName      : String(255);
-    fileType      : String(10);
+    // Wide enough to hold a full MIME type ("application/pdf", or long ones
+    // like "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    // not just the short extension uploadDocument normally stores ("pdf",
+    // "xlsx"). CAP's generic media-stream handler (fill_media_type, behind
+    // contentBinary's `@Core.MediaType: fileType` in intake-service.cds)
+    // writes the PUT's Content-Type header into this column on every binary
+    // upload as an unavoidable side effect — verified it cannot be suppressed
+    // from application code (before-UPDATE deletions of req.data.fileType do
+    // not stop it reaching the database write). String(10) overflowed with a
+    // real SqlError on HANA the moment a real Content-Type header arrived.
+    fileType      : String(100);
     // Raw text content to parse/extract from (email body, CSV/TSV text, structured
     // REST payload). Populated when the user pastes text or uploads a text-ish file.
     content       : LargeString;

@@ -1,0 +1,25 @@
+{
+  "requestId": "REQ-2026-0914-001",
+  "requestedBy": "sarah.chen@example-labs.com",
+  "department": "Lab 3 - Microbiology",
+  "items": [
+    {
+      "description": "Inverted microscope with phase contrast",
+      "quantity": 6,
+      "unit": "piece",
+      "requestedDate": "2026-12-01"
+    },
+    {
+      "description": "Nitrile gloves size M",
+      "quantity": 20,
+      "unit": "box",
+      "requestedDate": "2026-09-20"
+    },
+    {
+      "description": "Benchtop centrifuge rated 15000 RPM",
+      "quantity": 2,
+      "unit": "piece",
+      "requestedDate": "2026-11-15"
+    }
+  ]
+}

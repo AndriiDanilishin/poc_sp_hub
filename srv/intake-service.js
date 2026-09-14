@@ -110,8 +110,22 @@ module.exports = class IntakeService extends cds.ApplicationService {
     // else that has its own action and validation.
     this.before('UPDATE', SourceDocuments, async (req) => {
       const data = req.data || {};
-      // Ignore the key, which CAP echoes into req.data on a keyed UPDATE.
-      const touched = Object.keys(data).filter((k) => k !== 'ID');
+      // Ignore the key, which CAP echoes into req.data on a keyed UPDATE. Also
+      // ignore fileType when contentBinary is present: contentBinary carries
+      // `@Core.MediaType: fileType` (srv/intake-service.cds), so CAP's own
+      // generic stream-only handler (fill_media_type in
+      // @sap/cds/libx/_runtime/common/generic/stream-only.js) injects fileType
+      // from the PUT's Content-Type header into req.data alongside
+      // contentBinary on every media-stream write — before this handler ever
+      // runs. Treating that as an illegal extra field made every real stream
+      // PUT 405 whenever the client sent a Content-Type header (verified: local
+      // curl tests without one slipped through, the deployed app's fetch() PUT
+      // always sends one and consistently 405'd). fileType alone, without
+      // contentBinary, is still rejected below — that is a real attempt to
+      // edit metadata directly.
+      const touched = Object.keys(data).filter(
+        (k) => k !== 'ID' && !(k === 'fileType' && 'contentBinary' in data),
+      );
       const isStreamWrite = touched.length === 1 && touched[0] === 'contentBinary';
       if (!isStreamWrite) {
         return req.reject(
@@ -120,12 +134,11 @@ module.exports = class IntakeService extends cds.ApplicationService {
             'changeWorkspace or extractRequirements.',
         );
       }
-
       const documentId = req.params?.[0]?.ID ?? req.params?.[0];
       const document = await SELECT.one
         .from(SourceDocuments)
         .where({ ID: documentId })
-        .columns('ID', 'status');
+        .columns('ID', 'status', 'fileType');
       if (!document) {
         return req.reject(404, `SourceDocument ${documentId} not found`);
       }
@@ -136,6 +149,19 @@ module.exports = class IntakeService extends cds.ApplicationService {
             'the requirements derived from it. Upload a new document instead.',
         );
       }
+      // fileType normally holds the short extension uploadDocument set ("pdf",
+      // "xlsx"), which document-parsers/index.js and table-parser.js key off
+      // of. CAP's generic media-stream handler (fill_media_type, behind
+      // contentBinary's `@Core.MediaType: fileType` in intake-service.cds)
+      // writes the PUT's Content-Type header into this same column as an
+      // unavoidable side effect of every stream write — deleting it from
+      // req.data here does not stop it reaching the database (verified: the
+      // column was still overwritten with "application/pdf" regardless). The
+      // column is widened (db/sourcing-schema.cds) so that write never fails,
+      // and the short extension is restored after the fact below once the
+      // framework's own write has landed, so the DB stays clean for
+      // parser-dispatch consumers between uploads.
+      req._originalFileType = document.fileType;
 
       // Enforce the cap on the bytes actually sent: uploadDocument's fileSize is
       // only the client's claim and can under-report. Content-Length is checked
@@ -150,18 +176,58 @@ module.exports = class IntakeService extends cds.ApplicationService {
       }
     });
 
-    // Correct fileSize to the bytes actually stored. uploadDocument recorded the
-    // client's claim, which can differ from what arrived (or be absent entirely),
-    // and the UI shows this value. Done after the write so it cannot interfere
-    // with the stream-only guard above.
+    // Correct fileSize to the bytes actually stored, restore fileType to its
+    // pre-stream extension value (see the before-UPDATE handler above —
+    // fill_media_type overwrites it with a full MIME type as an unavoidable
+    // side effect of the stream write, regardless of req.data edits made
+    // earlier in the same request), and populate a text preview into
+    // `content` for the Object Page's "Document Content" facet, which
+    // otherwise stays empty for every binary upload (a PDF's bytes live in
+    // contentBinary, never in `content`). This reuses parseDocument's text
+    // layer extraction — the same parsing extractRequirements will run later
+    // — so the preview is available immediately after upload without waiting
+    // for (or requiring) that action, and without a second LLM call. Failures
+    // (a scanned PDF with no text layer, an unsupported format) are swallowed
+    // here: this is a convenience preview, not the authoritative extraction
+    // path, so a parse error must not block the upload itself. Done after the
+    // write so it cannot interfere with the stream-only guard above.
     this.after('UPDATE', SourceDocuments, async (_, req) => {
       if (!Object.prototype.hasOwnProperty.call(req.data || {}, 'contentBinary')) {
         return;
       }
       const documentId = req.params?.[0]?.ID ?? req.params?.[0];
       const buffer = await readBinaryContent(documentId);
+      const patch = {};
       if (buffer) {
-        await UPDATE(SourceDocuments).set({ fileSize: buffer.length }).where({ ID: documentId });
+        patch.fileSize = buffer.length;
+      }
+      if (req._originalFileType) {
+        patch.fileType = req._originalFileType;
+      }
+      if (buffer) {
+        try {
+          const document = await SELECT.one
+            .from(SourceDocuments)
+            .where({ ID: documentId })
+            .columns('originType', 'fileType', 'content');
+          if (document && !document.content) {
+            const parsed = await parseDocument({
+              originType: document.originType,
+              fileType: req._originalFileType || document.fileType,
+              buffer,
+            });
+            if (parsed.text) {
+              patch.content = parsed.text;
+            }
+          }
+        } catch {
+          // No text layer, unsupported format, etc. — leave content empty;
+          // extractRequirements will surface the real error if/when the user
+          // asks for extraction.
+        }
+      }
+      if (Object.keys(patch).length) {
+        await UPDATE(SourceDocuments).set(patch).where({ ID: documentId });
       }
     });
 

@@ -279,7 +279,7 @@ sap.ui.define(
                   return oDocument;
                 }
                 return oController
-                  ._putBinary(oDocument.ID, mContent.binary, oPickedFile.type || sFileType)
+                  ._putBinary(oModel, oDocument.ID, mContent.binary, oPickedFile.type || sFileType)
                   .then(function () {
                     return oDocument;
                   });
@@ -350,27 +350,45 @@ sap.ui.define(
          * rather than the OData model because V4 has no client API for stream
          * properties; the CSRF token is taken from the model's existing session
          * so this stays inside CAP's auth handling.
+         *
+         * The service root is resolved from the OData model, NOT hardcoded as
+         * "/api/intake/" — a hardcoded absolute path bypasses whatever prefix an
+         * approuter serves this app under (e.g. the managed SAP Build Work Zone
+         * router routes "/<app-name>/api/*" to the backend, stripping the app
+         * name; going straight to "/api/*" skips that rewrite and 404s at the
+         * approuter itself, before ever reaching CAP — which is indistinguishable
+         * from a real "not found" except that no SourceDocument row gets
+         * created). oModel.getServiceUrl() already carries the base the rest of
+         * the app's OData calls successfully use, e.g. "./api/intake/" or an
+         * absolute app-name-prefixed URL, so build both requests from it.
          */
-        _putBinary: function (sDocumentId, oArrayBuffer, sContentType) {
-          var sUrl =
-            "/api/intake/SourceDocuments(" + sDocumentId + ")/contentBinary";
+        _putBinary: function (oModel, sDocumentId, oArrayBuffer, sContentType) {
+          var sServiceUrl = oModel.getServiceUrl(); // includes trailing slash
+          var sUrl = sServiceUrl + "SourceDocuments(" + sDocumentId + ")/contentBinary";
 
           // Fetch a real token first. getHttpHeaders() returns the model's
           // CONFIGURED headers, not the token it holds at runtime, so the old
           // code effectively always sent the literal "Fetch" — which asks for a
-          // token rather than presenting one. Harmless against this server (it
-          // issues no CSRF token today, which is why binary upload worked), but
-          // it would fail the moment CSRF is enforced in production.
-          return fetch("/api/intake/", {
+          // token rather than presenting one. A failed/404'd HEAD here used to
+          // be swallowed silently (falling back to no token), which hid a
+          // broken service URL behind what looked like "upload succeeded, PUT
+          // just wasn't authenticated" — now a non-ok HEAD response is treated
+          // as evidence the URL itself is wrong and fails loudly instead.
+          return fetch(sServiceUrl, {
             method: "HEAD",
             headers: { "X-CSRF-Token": "Fetch" },
             credentials: "same-origin"
           })
             .then(function (oHead) {
+              if (!oHead.ok && oHead.status !== 405) {
+                // Some routers reject HEAD on a collection with 405 even though
+                // the route itself is fine; anything else (404, 500, …) means
+                // the service root could not be reached at all.
+                throw new Error(
+                  "Could not reach " + sServiceUrl + " (HTTP " + oHead.status + ")"
+                );
+              }
               return oHead.headers.get("X-CSRF-Token") || "";
-            })
-            .catch(function () {
-              return "";
             })
             .then(function (sToken) {
               var mHeaders = {
@@ -397,7 +415,7 @@ sap.ui.define(
                 } catch {
                   // Non-JSON error body — fall back to the raw text.
                 }
-                throw new Error(sMessage);
+                throw new Error(sMessage || "PUT " + sUrl + " failed (HTTP " + oResponse.status + ")");
               });
             });
         },
