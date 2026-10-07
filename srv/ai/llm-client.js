@@ -42,6 +42,9 @@ function loadConfig(overrides = {}) {
     maxOutputTokens: Number(env.maxOutputTokens) || 1024,
     // Guardrail: reject prompts larger than this many characters.
     maxInputChars: Number(env.maxInputChars) || 48000,
+    // OCR transcribes whole pages, so it needs a larger output budget than chat.
+    maxOcrOutputTokens:
+      Number(process.env.AI_OCR_MAX_TOKENS) || Number(env.maxOcrOutputTokens) || 8192,
     apiKey: process.env.OPENAI_API_KEY || env.apiKey,
     baseURL: process.env.OPENAI_BASE_URL || env.baseURL || 'https://api.openai.com/v1',
     // BTP destination name, used when provider === 'destination' (CF).
@@ -321,6 +324,47 @@ async function openaiChat(config, { system, user, schema, temperature, maxTokens
   };
 }
 
+// Vision transcription of a file (scanned PDF). Chat Completions accepts a PDF as
+// a `file` content part on vision-capable models (gpt-4o, gpt-4o-mini); the model
+// sees each page as an image, so this works when the PDF has no text layer.
+async function openaiTranscribe(config, { system, schema, buffer, mimeType, filename, maxTokens }) {
+  const data = await openaiFetch(
+    config,
+    '/chat/completions',
+    {
+      model: config.chatModel,
+      messages: [
+        {
+          role: 'system',
+          content: `${system}\n\nRespond with a single JSON object that strictly matches this JSON schema (use these exact field names, no others):\n${JSON.stringify(schema)}`,
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Transcribe this document.' },
+            {
+              type: 'file',
+              file: {
+                filename: filename || 'document.pdf',
+                file_data: `data:${mimeType};base64,${buffer.toString('base64')}`,
+              },
+            },
+          ],
+        },
+      ],
+      temperature: 0,
+      max_tokens: maxTokens,
+      response_format: { type: 'json_object' },
+    },
+    'transcribe',
+  );
+  return {
+    content: data.choices?.[0]?.message?.content ?? '',
+    usage: data.usage || null,
+    model: data.model || config.chatModel,
+  };
+}
+
 async function openaiEmbed(config, text) {
   const data = await openaiFetch(
     config,
@@ -514,6 +558,75 @@ class LLMClient {
         `ms=${Date.now() - started} attempts=${attempts}${tokens}`,
     );
     return result.obj;
+  }
+
+  // transcribe({ buffer, mimeType, filename }) → { pages: [{ page, text }] }.
+  // OCR fallback for files with no text layer (§17). The raw file goes to the
+  // provider as-is, so it cannot be PII-redacted first — refuse rather than
+  // silently bypass the redaction guarantee.
+  async transcribe({ buffer, mimeType = 'application/pdf', filename } = {}) {
+    if (!Buffer.isBuffer(buffer) || !buffer.length) {
+      throw new Error('transcribe requires a non-empty file buffer');
+    }
+    if (this.config.provider === 'mock') {
+      const rand = prng(hashSeed(buffer.toString('base64')));
+      return { pages: [{ page: 1, text: `mock-ocr-${Math.floor(rand() * 1e6)}` }] };
+    }
+    if (this.config.provider !== 'openai' && this.config.provider !== 'destination') {
+      throw new Error(`Unknown AI provider: ${this.config.provider}`);
+    }
+    if (this.config.redactPii) {
+      throw new Error(
+        'OCR sends the raw file to the AI provider and cannot redact PII; it is disabled while AI_REDACT_PII=true',
+      );
+    }
+    const httpCfg = await this._httpConfig();
+    if (!httpCfg.apiKey)
+      throw new Error(`${this.config.provider} transcribe: no credential resolved`);
+
+    const schema = {
+      type: 'object',
+      required: ['pages'],
+      properties: {
+        pages: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['page', 'text'],
+            properties: { page: { type: 'integer' }, text: { type: 'string' } },
+          },
+        },
+      },
+    };
+    const system =
+      'You are an OCR engine. Transcribe all readable text of the attached document verbatim, ' +
+      'one entry per page, preserving line breaks and table rows. Do not summarise, translate or ' +
+      'add commentary. Use an empty string for a page with no readable text.';
+
+    const started = Date.now();
+    const r = await openaiTranscribe(httpCfg, {
+      system,
+      schema,
+      buffer,
+      mimeType,
+      filename,
+      maxTokens: this.config.maxOcrOutputTokens,
+    });
+    let obj;
+    try {
+      obj = JSON.parse(r.content);
+    } catch {
+      throw new Error('OCR returned invalid output: response was not valid JSON');
+    }
+    const v = validate(schema, obj);
+    if (!v.ok) throw new Error(`OCR returned invalid output: ${v.errors.join('; ')}`);
+
+    const u = r.usage;
+    LOG.info(
+      `transcribe ok provider=${this.config.provider} model=${r.model} ms=${Date.now() - started} ` +
+        `pages=${obj.pages.length}${u ? ` total_tokens=${u.total_tokens ?? '?'}` : ''}`,
+    );
+    return obj;
   }
 }
 

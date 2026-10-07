@@ -18,11 +18,12 @@ service IntakeService @(path: '/api/intake', requires: 'authenticated-user') {
     // through the action payload.
     // READ open to any authenticated user; UPDATE (the media-stream PUT of
     // contentBinary, narrowed further by the before-UPDATE handler) requires the
-    // ProcurementRequester role. CREATE/DELETE remain denied — creation goes through
-    // uploadDocument().
+    // ProcurementRequester role. CREATE remains denied — creation goes through
+    // uploadDocument(). DELETE is granted to the same role; the before-DELETE
+    // handler refuses it while requirements still trace back to the document.
     @restrict: [
         {grant: 'READ'},
-        {grant: 'UPDATE', to: 'ProcurementRequester'}
+        {grant: ['UPDATE', 'DELETE'], to: 'ProcurementRequester'}
     ]
     entity SourceDocuments as
         projection on db.SourceDocument {

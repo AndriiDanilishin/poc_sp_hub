@@ -352,6 +352,70 @@ Content-Type: application/pdf
 
 < ./data/sample.pdf
 
+### Scanned PDF (image only, no text layer): create the metadata row
+# Extraction falls back to OCR through the vision-capable chat model (§17).
+# @name scanUpload
+POST {{host}}/api/intake/uploadDocument
+{{requester}}
+Content-Type: application/json
+
+{
+  "workspaceId": "{{wsOpen}}",
+  "originType": "Pdf",
+  "fileName": "scanned.pdf",
+  "fileType": "pdf",
+  "fileSize": 61580
+}
+
+### Capture the scanned document id
+@scanDoc = {{scanUpload.response.body.ID}}
+
+### PUT the scanned PDF -> expect 204
+PUT {{host}}/api/intake/SourceDocuments({{scanDoc}})/contentBinary
+{{requester}}
+Content-Type: application/pdf
+
+< ./data/scanned.pdf
+
+### content is still null: the upload never OCRs (that would be an LLM call)
+GET {{host}}/api/intake/SourceDocuments/{{scanDoc}}?$select=fileSize,status,content
+{{requester}}
+
+### Extract -> OCR fallback -> expect 200 { status: "EXTRACTED" }
+# Under AI_PROVIDER=mock the transcription is a deterministic placeholder; with
+# openai the monitors and HDMI cables on the scan become two requirements.
+POST {{host}}/api/intake/extractRequirements
+{{requester}}
+Content-Type: application/json
+
+{ "documentId": "{{scanDoc}}" }
+
+### content now holds the OCR transcription (Object Page preview)
+GET {{host}}/api/intake/SourceDocuments/{{scanDoc}}?$select=status,errorMsg,content
+{{requester}}
+
+###############################################################################
+# IntakeService — deleting a document (the Fiori "Delete" button)
+###############################################################################
+
+### Guard: delete a document its requirements still trace back to -> expect 409
+# The scanned PDF above was just extracted into 2 requirements; their
+# RequirementSource links would dangle. Delete those requirements first.
+DELETE {{host}}/api/intake/SourceDocuments({{scanDoc}})
+{{requester}}
+
+### AuthZ: a user without ProcurementRequester cannot delete -> expect 403
+DELETE {{host}}/api/intake/SourceDocuments({{movableDoc}})
+{{curator}}
+
+### Delete an UPLOADED (never extracted) document -> expect 204
+DELETE {{host}}/api/intake/SourceDocuments({{movableDoc}})
+{{requester}}
+
+### Deleted: reading it again -> expect 404
+GET {{host}}/api/intake/SourceDocuments({{movableDoc}})
+{{requester}}
+
 ### Guard: oversize upload is refused up front -> expect 400
 # The 10 MB cap is enforced server-side as well as in the browser; the client
 # check is a UX affordance, not a control.

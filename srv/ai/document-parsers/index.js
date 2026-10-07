@@ -34,15 +34,17 @@ const PARSERS = {
  * @param {string} [args.fileType]  hint used by some parsers (e.g. csv/tsv/xlsx)
  * @param {Buffer} [args.buffer]    raw file bytes
  * @param {string|object} [args.text]  raw text, or a structured REST payload
+ * @param {string} [args.fileName]  original file name (passed to OCR)
+ * @param {boolean} [args.ocr]      false skips the LLM-billed OCR fallback
  * @returns {Promise<{text: string, segments: Array<{text: string, location: string}>}>}
  */
-async function parseDocument({ originType, fileType, buffer, text } = {}) {
+async function parseDocument({ originType, fileType, fileName, buffer, text, ocr } = {}) {
   const parser = PARSERS[originType];
   if (!parser) {
     throw new Error(`No parser registered for originType '${originType}'`);
   }
 
-  const result = await parser.parse({ fileType, buffer, text });
+  const result = await parser.parse({ fileType, fileName, buffer, text, ocr });
   const segments = result.segments || [];
   const fullText = result.text ?? segments.map((s) => s.text).join('\n');
 

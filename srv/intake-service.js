@@ -116,6 +116,52 @@ module.exports = class IntakeService extends cds.ApplicationService {
       return SELECT.one.from(SourceDocuments).where({ ID: document.ID });
     });
 
+    // Delete a document. Refused while any WorkspaceRequirement still traces back
+    // to it: RequirementSource.document is @mandatory, so deleting the document
+    // would leave those links dangling and the requirements without provenance
+    // (§17). Deleting a requirement cascades its sources, so once the derived
+    // requirements are removed in the Workspace app the document becomes deletable.
+    this.before('DELETE', SourceDocuments, async (req) => {
+      const documentId = req.params?.[0]?.ID ?? req.params?.[0];
+      const document = await SELECT.one
+        .from(SourceDocuments)
+        .where({ ID: documentId })
+        .columns('ID', 'fileName', 'status', 'workspace_ID');
+      if (!document) {
+        return req.reject(404, `SourceDocument ${documentId} not found`);
+      }
+      if (document.status === 'EXTRACTING') {
+        return req.reject(409, 'This document is being extracted; wait for it to finish.');
+      }
+      const { count } = await SELECT.one
+        .from(RequirementSource)
+        .columns('count(1) as count')
+        .where({ document_ID: documentId });
+      if (count > 0) {
+        return req.reject(
+          409,
+          `${count} requirement(s) in the workspace were extracted from "${document.fileName}". ` +
+            'Delete them in the Requirement Workspace first, then delete the document.',
+        );
+      }
+      req._deletedDocument = document;
+    });
+
+    this.after('DELETE', SourceDocuments, async (_, req) => {
+      const document = req._deletedDocument;
+      if (!document) return;
+      await writeAudit(req, {
+        entityName: 'SourceDocument',
+        entityId: document.ID,
+        action: 'DELETE',
+        before: JSON.stringify({
+          fileName: document.fileName,
+          status: document.status,
+          workspace_ID: document.workspace_ID,
+        }),
+      });
+    });
+
     // Binary upload: PUT /SourceDocuments(<id>)/contentBinary.
     //
     // The projection grants UPDATE (not @readonly) purely so this media-stream
@@ -209,6 +255,8 @@ module.exports = class IntakeService extends cds.ApplicationService {
             originType: document.originType,
             fileType: document.fileType,
             buffer,
+            // OCR is an LLM call; a plain upload must stay free. Extraction OCRs.
+            ocr: false,
           });
           patch.content = parsed.text || null;
         } catch {
@@ -360,6 +408,7 @@ module.exports = class IntakeService extends cds.ApplicationService {
         parsed = await parseDocument({
           originType: document.originType,
           fileType: document.fileType,
+          fileName: document.fileName,
           buffer,
           text: document.content,
         });
@@ -401,9 +450,11 @@ module.exports = class IntakeService extends cds.ApplicationService {
         );
       }
 
-      await UPDATE(SourceDocuments)
-        .set({ status: 'EXTRACTED', errorMsg: null })
-        .where({ ID: documentId });
+      // An OCR'd scan had no text at upload; keep the transcription so the
+      // Object Page content preview shows what the requirements came from.
+      const done = { status: 'EXTRACTED', errorMsg: null };
+      if (parsed.meta?.ocr && !document.content) done.content = parsed.text;
+      await UPDATE(SourceDocuments).set(done).where({ ID: documentId });
 
       await writeAudit(req, {
         entityName: 'SourceDocument',
