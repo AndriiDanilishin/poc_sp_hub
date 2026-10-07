@@ -190,12 +190,25 @@ async function main() {
   const named = {};
   const resolve = makeResolver(vars, named);
 
-  // File-level variables (everything before the first ###).
-  for (const [k, v] of blocks.pre || []) vars[k] = resolve(v);
+  // `--host` must win over every `@host = …` in the file. A file that opens
+  // with a `###` header (api.http does) has no pre-block section, so its
+  // `@host` is an assignment of the first block, applied after that block —
+  // setting vars.host once up front was silently overwritten there.
+  const assign = (k, v) => {
+    if (k === 'host' && opts.host) return;
+    vars[k] = resolve(v);
+  };
   if (opts.host) vars.host = opts.host;
 
-  // Fail fast with a clear message rather than N connection errors.
-  const host = vars.host || 'http://localhost:4004';
+  // File-level variables (everything before the first ###).
+  for (const [k, v] of blocks.pre || []) assign(k, v);
+
+  // Fail fast with a clear message rather than N connection errors. The file's
+  // @host may sit in the first block's assignments, not yet applied here.
+  const fileHost = [...(blocks.pre || []), ...blocks.flatMap((b) => b.assigns)].find(
+    ([k]) => k === 'host',
+  );
+  const host = vars.host || (fileHost && resolve(fileHost[1])) || 'http://localhost:4004';
   try {
     await fetch(host + '/', { method: 'GET' });
   } catch {
@@ -210,7 +223,7 @@ async function main() {
   for (const block of blocks) {
     const req = buildRequest(block, resolve, baseDir);
     if (!req) {
-      for (const [k, v] of block.assigns) vars[k] = resolve(v);
+      for (const [k, v] of block.assigns) assign(k, v);
       continue;
     }
 
@@ -268,7 +281,7 @@ async function main() {
     }
 
     // Assignments that follow this block can now use its capture.
-    for (const [k, v] of block.assigns) vars[k] = resolve(v);
+    for (const [k, v] of block.assigns) assign(k, v);
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);
