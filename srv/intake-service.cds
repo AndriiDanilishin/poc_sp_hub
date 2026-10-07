@@ -101,10 +101,12 @@ service IntakeService @(path: '/api/intake', requires: 'authenticated-user') {
 
 // Media-stream plumbing for the binary upload path. @Core.MediaType marks
 // contentBinary as the stream property (its value names the column holding the
-// content type), and @Core.ContentDisposition.Filename makes a download come back
-// under the original file name rather than the entity key.
+// content type — a dedicated `mediaType` column, so a stream write never
+// touches `fileType`, which the parsers dispatch on), and
+// @Core.ContentDisposition.Filename makes a download come back under the
+// original file name rather than the entity key.
 annotate IntakeService.SourceDocuments with {
-    contentBinary @Core.MediaType                   : fileType
+    contentBinary @Core.MediaType                   : mediaType
                   @Core.ContentDisposition.Filename : fileName
                   @Core.ContentDisposition.Type     : 'inline';
 };

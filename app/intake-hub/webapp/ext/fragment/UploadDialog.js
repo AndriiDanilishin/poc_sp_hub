@@ -45,6 +45,13 @@ sap.ui.define(
     // which also lets the Object Page show a content preview.
     var BINARY_EXTENSIONS = ["pdf"];
 
+    // Content-Type for the media-stream PUT when the browser reports none for
+    // the picked file. Must be on the server's ALLOWED_MEDIA_TYPES list
+    // (srv/intake-service.js) — a bare extension like "pdf" is not a MIME type.
+    var MEDIA_TYPE_BY_EXTENSION = {
+      pdf: "application/pdf"
+    };
+
     function extensionOf(sFileName) {
       var iDot = (sFileName || "").lastIndexOf(".");
       return iDot > -1 ? sFileName.slice(iDot + 1).toLowerCase() : "";
@@ -64,6 +71,11 @@ sap.ui.define(
       var oDialog = null;
       var oNewWsDialog = null;
       var oPickedFile = null;
+      // A binary upload is two requests: uploadDocument creates the row, then
+      // the bytes are PUT to it. If the PUT fails the row already exists, so a
+      // retry must re-PUT to that row instead of creating a second one. Holds
+      // { document, file, key } until the PUT succeeds.
+      var oPendingBinary = null;
 
       function i18n(sKey, aArgs) {
         return oExtensionAPI
@@ -264,25 +276,54 @@ sap.ui.define(
           // A picked file is read here so text formats can travel through the
           // action's `content` (giving the Object Page a preview), while binary
           // formats are PUT to the media stream after the row exists.
+          var sKey = [sWorkspaceId, sOriginType, sFileName, sFileType].join("|");
           oController
             ._resolveContent(sContent)
             .then(function (mContent) {
-              return ActionRunner.invoke(oModel, "uploadDocument", {
-                workspaceId: sWorkspaceId,
-                originType: sOriginType,
-                fileName: sFileName,
-                fileType: sFileType,
-                content: mContent.text,
-                fileSize: oPickedFile ? oPickedFile.size : null
-              }).then(function (oDocument) {
+              // Retry after a failed PUT with the same file and metadata: the
+              // row exists already, only the bytes are missing.
+              var bResume =
+                mContent.binary &&
+                oPendingBinary &&
+                oPendingBinary.file === oPickedFile &&
+                oPendingBinary.key === sKey;
+              var pDocument = bResume
+                ? Promise.resolve(oPendingBinary.document)
+                : ActionRunner.invoke(oModel, "uploadDocument", {
+                    workspaceId: sWorkspaceId,
+                    originType: sOriginType,
+                    fileName: sFileName,
+                    fileType: sFileType,
+                    content: mContent.text,
+                    fileSize: oPickedFile ? oPickedFile.size : null
+                  });
+              return pDocument.then(function (oDocument) {
                 if (!mContent.binary) {
                   return oDocument;
                 }
+                oPendingBinary = { document: oDocument, file: oPickedFile, key: sKey };
+                var sMediaType =
+                  oPickedFile.type ||
+                  MEDIA_TYPE_BY_EXTENSION[extensionOf(oPickedFile.name)] ||
+                  "application/octet-stream";
                 return oController
-                  ._putBinary(oModel, oDocument.ID, mContent.binary, oPickedFile.type || sFileType)
-                  .then(function () {
-                    return oDocument;
-                  });
+                  ._putBinary(oModel, oDocument.ID, mContent.binary, sMediaType)
+                  .then(
+                    function () {
+                      oPendingBinary = null;
+                      return oDocument;
+                    },
+                    function (oError) {
+                      // The row is in the list now, without its file: say so,
+                      // and that pressing Upload again retries just the file.
+                      oExtensionAPI.refresh();
+                      throw new Error(
+                        i18n("uploadBinaryFailed", [
+                          ActionRunner.describeError(oError, i18n("uploadFailed"))
+                        ])
+                      );
+                    }
+                  );
               });
             })
             .then(function (oDocument) {
@@ -367,28 +408,24 @@ sap.ui.define(
           var sUrl = sServiceUrl + "SourceDocuments(" + sDocumentId + ")/contentBinary";
 
           // Fetch a real token first. getHttpHeaders() returns the model's
-          // CONFIGURED headers, not the token it holds at runtime, so the old
-          // code effectively always sent the literal "Fetch" — which asks for a
-          // token rather than presenting one. A failed/404'd HEAD here used to
-          // be swallowed silently (falling back to no token), which hid a
-          // broken service URL behind what looked like "upload succeeded, PUT
-          // just wasn't authenticated" — now a non-ok HEAD response is treated
-          // as evidence the URL itself is wrong and fails loudly instead.
+          // CONFIGURED headers, not the token it holds at runtime, so sending
+          // those would present the literal "Fetch" instead of a token.
+          //
+          // The token fetch is best-effort: any failure (a router answering HEAD
+          // with 401/403/405, a network blip) falls back to no token and the PUT
+          // goes ahead. If the URL or session is really broken, the PUT fails
+          // with its own status and message — a better error than the HEAD's,
+          // and one the caller turns into a retryable "file not uploaded".
           return fetch(sServiceUrl, {
             method: "HEAD",
             headers: { "X-CSRF-Token": "Fetch" },
             credentials: "same-origin"
           })
             .then(function (oHead) {
-              if (!oHead.ok && oHead.status !== 405) {
-                // Some routers reject HEAD on a collection with 405 even though
-                // the route itself is fine; anything else (404, 500, …) means
-                // the service root could not be reached at all.
-                throw new Error(
-                  "Could not reach " + sServiceUrl + " (HTTP " + oHead.status + ")"
-                );
-              }
               return oHead.headers.get("X-CSRF-Token") || "";
+            })
+            .catch(function () {
+              return "";
             })
             .then(function (sToken) {
               var mHeaders = {
@@ -436,6 +473,7 @@ sap.ui.define(
         /** Called when the upload dialog closes; releases both dialogs. */
         onDialogClosed: function () {
           oPickedFile = null;
+          oPendingBinary = null;
           if (oNewWsDialog) {
             oNewWsDialog.destroy();
             oNewWsDialog = null;

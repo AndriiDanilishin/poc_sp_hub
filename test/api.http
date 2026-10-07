@@ -278,9 +278,52 @@ Content-Type: application/pdf
 
 < ./data/sample.pdf
 
-### Read back the corrected fileSize
-GET {{host}}/api/intake/SourceDocuments/{{pdfDoc}}?$select=fileName,fileType,fileSize,status
+### Read back the stream metadata and the text preview
+# fileSize is corrected to the stored bytes; fileType stays "pdf" (the parsers
+# dispatch on it) while the PUT's Content-Type lands in its own mediaType column;
+# content holds the PDF's text layer for the Object Page preview.
+GET {{host}}/api/intake/SourceDocuments/{{pdfDoc}}?$select=fileName,fileType,mediaType,fileSize,status,content
 {{requester}}
+
+### Download the stream -> Content-Type: application/pdf (from mediaType)
+GET {{host}}/api/intake/SourceDocuments({{pdfDoc}})/contentBinary
+{{requester}}
+
+### Guard: a script-capable Content-Type is refused -> expect 415
+# mediaType is served back as the download's Content-Type, so only an
+# allow-list of document/image types is accepted.
+PUT {{host}}/api/intake/SourceDocuments({{pdfDoc}})/contentBinary
+{{requester}}
+Content-Type: text/html
+
+not a document
+
+### Guard: editing mediaType without a stream is a direct edit -> expect 405
+PATCH {{host}}/api/intake/SourceDocuments/{{pdfDoc}}
+{{requester}}
+Content-Type: application/json
+
+{ "mediaType": "text/html" }
+
+### Replace the file while still UPLOADED -> expect 204
+# A second file supersedes the first, so the preview (and the text extraction
+# reads) is re-derived from the new bytes rather than kept from the old file.
+PUT {{host}}/api/intake/SourceDocuments({{pdfDoc}})/contentBinary
+{{requester}}
+Content-Type: application/pdf
+
+< ../demo-uploads/demo-pdf.pdf
+
+### content now reflects demo-pdf.pdf, not sample.pdf
+GET {{host}}/api/intake/SourceDocuments/{{pdfDoc}}?$select=fileType,mediaType,fileSize,content
+{{requester}}
+
+### Put the original sample back for the extraction step below -> expect 204
+PUT {{host}}/api/intake/SourceDocuments({{pdfDoc}})/contentBinary
+{{requester}}
+Content-Type: application/pdf
+
+< ./data/sample.pdf
 
 ### Extract from the uploaded PDF -> pdf-parse reads the text layer
 # Each requirement's RequirementSource.location is the real page ("page 1"),

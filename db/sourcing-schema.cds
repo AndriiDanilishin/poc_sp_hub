@@ -19,17 +19,17 @@ entity SourceDocument : cuid, managed {
         Text;
     };
     fileName      : String(255);
-    // Wide enough to hold a full MIME type ("application/pdf", or long ones
-    // like "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-    // not just the short extension uploadDocument normally stores ("pdf",
-    // "xlsx"). CAP's generic media-stream handler (fill_media_type, behind
-    // contentBinary's `@Core.MediaType: fileType` in intake-service.cds)
-    // writes the PUT's Content-Type header into this column on every binary
-    // upload as an unavoidable side effect — verified it cannot be suppressed
-    // from application code (before-UPDATE deletions of req.data.fileType do
-    // not stop it reaching the database write). String(10) overflowed with a
-    // real SqlError on HANA the moment a real Content-Type header arrived.
+    // Short extension set by uploadDocument ("pdf", "csv", "eml") — what the
+    // document parsers dispatch on. The media-stream PUT never writes it: the
+    // stream's Content-Type lives in `mediaType` below. (Width kept from an
+    // earlier revision that stored MIME types here; narrowing it would fail an
+    // HDI deploy over any row already holding a longer value.)
     fileType      : String(100);
+    // MIME type of the bytes in contentBinary — the column `@Core.MediaType`
+    // points at (intake-service.cds). CAP's generic fill_media_type handler
+    // copies the PUT's Content-Type header into it; the before-UPDATE handler
+    // in intake-service.js allow-lists the value.
+    mediaType     : String(100);
     // Raw text content to parse/extract from (email body, CSV/TSV text, structured
     // REST payload). Populated when the user pastes text or uploads a text-ish file.
     content       : LargeString;

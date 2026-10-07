@@ -77,15 +77,16 @@ sap.ui.define([], function () {
       if (typeof vMessage !== "string" || !vMessage.trim()) {
         return sFallback;
       }
-      // A bare HTTP status line or generic reason phrase carries no information
-      // the fallback doesn't — UI5's V4 model sometimes rejects with only this
-      // (see the $direct comment in invoke() above) instead of CAP's real
-      // req.reject(...) text, so surfacing it verbatim would show the user
-      // "Not Found" instead of an actionable message.
+      // Transport errors ("Request failed with status code 404", "HTTP request
+      // failed - 403 Forbidden") carry no information the fallback doesn't, so
+      // they are matched as a PREFIX. A bare reason phrase ("Not Found") — what
+      // UI5's V4 model sometimes rejects with instead of CAP's req.reject(...)
+      // text (see the $direct comment in invoke() above) — is matched EXACTLY,
+      // so a real server message that merely starts with "Conflict" survives.
+      var sTrimmed = vMessage.trim();
       if (
-        /^(Network Error|Request failed|HTTP request failed|Not Found|Bad Request|Forbidden|Unauthorized|Conflict|Internal Server Error)$/i.test(
-          vMessage.trim()
-        )
+        /^(Network Error|Request failed|HTTP request failed)/i.test(sTrimmed) ||
+        /^(Not Found|Bad Request|Forbidden|Unauthorized|Conflict|Internal Server Error)$/i.test(sTrimmed)
       ) {
         return sFallback;
       }
