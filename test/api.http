@@ -305,6 +305,15 @@ Content-Type: application/json
 
 { "mediaType": "text/html" }
 
+### Guard: editing fileType directly is refused too -> expect 405
+# fileType drives parser dispatch (e.g. the binary-Excel guard), so it may only
+# be set through uploadDocument.
+PATCH {{host}}/api/intake/SourceDocuments/{{pdfDoc}}
+{{requester}}
+Content-Type: application/json
+
+{ "fileType": "xlsx" }
+
 ### Replace the file while still UPLOADED -> expect 204
 # A second file supersedes the first, so the preview (and the text extraction
 # reads) is re-derived from the new bytes rather than kept from the old file.
@@ -649,7 +658,19 @@ Content-Type: application/json
 
 {}
 
-### submitToS4 on the APPROVED project — deliberate stub -> expect 400 (system not connected, Phase 5)
+### Guard: submitToS4 on a DRAFT project — only APPROVED may reach S/4HANA -> expect 409
+POST {{host}}/api/sourcing/SourcingProjects({{projDraftLab}})/SourcingProjectService.submitToS4
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### submitToS4 on the APPROVED project — deliberate stub -> expect 400
+# The real S/4HANA OData call is not built yet (Phase 5, §21). The stub runs
+# every guard above, then refuses with a user-facing "not connected to an
+# S/4HANA system" message. 400 rather than 501 on purpose: UI5's V4 message
+# parser replaces any 501 text with a generic "functionality not supported"
+# string, so the explanation would never reach the Fiori user.
 POST {{host}}/api/sourcing/SourcingProjects({{projApproved}})/SourcingProjectService.submitToS4
 {{manager}}
 Content-Type: application/json
