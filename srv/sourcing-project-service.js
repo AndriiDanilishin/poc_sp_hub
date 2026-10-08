@@ -1,6 +1,8 @@
 const cds = require('@sap/cds');
 const { draftSourcingProject } = require('./ai/project-drafting');
 const { makeAuditWriter } = require('./lib/audit');
+const { buildPurchaseRequisition, correlationRef } = require('./s4/pr-mapper');
+const s4 = require('./s4/pr-client');
 
 module.exports = class SourcingProjectService extends cds.ApplicationService {
   async init() {
@@ -76,10 +78,7 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
         const key = req.params?.[req.params.length - 1];
         const rowId = typeof key === 'object' ? key.ID : key;
         if (rowId) {
-          const row = await SELECT.one
-            .from(req.target)
-            .columns('project_ID')
-            .where({ ID: rowId });
+          const row = await SELECT.one.from(req.target).columns('project_ID').where({ ID: rowId });
           projectId = row?.project_ID;
         }
       }
@@ -154,7 +153,11 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
         });
         if (match && !seenSupplierIds.has(match.ID)) {
           seenSupplierIds.add(match.ID);
-          resolvedSuppliers.push({ supplier: match, rationale: s.rationale, confidence: s.confidence });
+          resolvedSuppliers.push({
+            supplier: match,
+            rationale: s.rationale,
+            confidence: s.confidence,
+          });
         }
       }
 
@@ -190,6 +193,37 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
       return SELECT.one.from(SourcingProjects).where({ ID: id });
     });
 
+    // Build and validate the S/4HANA Purchase Requisition for a project (§21). `run`
+    // executes a query: the request transaction for approve, a short committed one
+    // for submitToS4. Requirement order (by description) fixes the item numbering.
+    const prepareRequisition = async (project, run, validateOnly = false) => {
+      const { Requirement, MaterialGroup } = cds.entities('sourcing');
+      const requirements = await run(
+        SELECT.from(Requirement).where({ project_ID: project.ID }).orderBy('description'),
+      );
+      const codes = [
+        ...new Set(
+          [project.materialGroup_code, ...requirements.map((r) => r.materialGroup_code)].filter(
+            Boolean,
+          ),
+        ),
+      ];
+      const groups = codes.length
+        ? await run(
+            SELECT.from(MaterialGroup)
+              .columns('code', 's4Code')
+              .where({ code: { in: codes } }),
+          )
+        : [];
+      return buildPurchaseRequisition({
+        project,
+        requirements,
+        materialGroups: new Map(groups.filter((g) => g.s4Code).map((g) => [g.code, g.s4Code])),
+        config: s4.getConfig(),
+        validateOnly,
+      });
+    };
+
     this.on('approve', async (req) => {
       const id = boundKey(req);
       const project = await SELECT.one.from(SourcingProjects).where({ ID: id });
@@ -209,6 +243,16 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
         return req.reject(400, 'Cannot approve a project with no requirements');
       }
 
+      // Approval freezes the project, so whatever S/4HANA needs must be complete NOW —
+      // a missing price found only at submit time could no longer be fixed.
+      const { errors } = await prepareRequisition(project, (query) => cds.run(query));
+      if (errors.length) {
+        return req.reject(
+          400,
+          `Not ready for approval — S/4HANA would refuse it: ${errors.join(' ')}`,
+        );
+      }
+
       await UPDATE(SourcingProjects).set({ status: 'APPROVED' }).where({ ID: id });
       await writeAudit(req, {
         entityName: 'SourcingProject',
@@ -221,32 +265,214 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
       return SELECT.one.from(SourcingProjects).where({ ID: id });
     });
 
+    // ---- submitToS4: create the Purchase Requisition in S/4HANA (§21) --------
+    //
+    // CAP is the single choke point that talks to S/4HANA; the AI module has no
+    // path here. Flow and status machine are documented in submitToS4.md:
+    //   APPROVED → SUBMITTING (lock) → SUBMITTED | back to APPROVED
+    //
+    // Every DB access below runs in its OWN short committed transaction (`committed`):
+    // the lock must be visible to a concurrent click before S/4HANA is called, and the
+    // PurchaseReqLog trail must survive the req.reject() that reports a failure —
+    // req.reject rolls back the request transaction (the extractRequirements lesson).
+    // Reads go through it too, so the request transaction never opens: on SQLite it
+    // would hold the single connection and the first committed() would wait forever
+    // (verified — the submit hung).
+    // Status codes avoid 501: UI5's V4 message parser replaces a 501's text with a
+    // generic string, so the user would never see the explanation.
+    const STALE_LOCK_MS = 5 * 60 * 1000; // a SUBMITTING lock older than this was abandoned
+    const MAX_ERROR = 1000; // PurchaseReqLog.errorMsg
+    const MAX_RESPONSE = 20000;
+    const clip = (s, max) => (s && s.length > max ? s.slice(0, max) : s);
+
     this.on('submitToS4', async (req) => {
       const id = boundKey(req);
-      const project = await SELECT.one.from(SourcingProjects).where({ ID: id });
+      const { SourcingProject, PurchaseReqLog } = cds.entities('sourcing');
+      const committed = (fn) => cds.tx({ user: req.user, tenant: req.tenant }, fn);
+      const read = (query) => committed((tx) => tx.run(query));
+
+      const project = await read(SELECT.one.from(SourcingProject).where({ ID: id }));
       if (!project) {
         return req.reject(404, `Sourcing Project ${id} not found`);
       }
       // Guardrail (§25): only an approved project may reach S/4HANA.
-      if (project.status !== 'APPROVED') {
+      if (project.status !== 'APPROVED' && project.status !== 'SUBMITTING') {
         return req.reject(
           409,
           `Only APPROVED projects can be submitted (current: ${project.status})`,
         );
       }
-      // The actual S/4HANA OData call lands in Phase 5 (§21). CAP is the single
-      // choke point that ever talks to S/4HANA; the AI module has no path here.
-      //
-      // Deliberately 400, not 501: UI5's OData V4 ODataMessageParser has a hardcoded
-      // fallback for HTTP 501 ("The server does not support the functionality required
-      // to fulfill the request") that replaces whatever message text the server sends,
-      // so a 501 here always showed that generic string in Fiori Elements regardless of
-      // what we passed to req.reject. 400 lets our actual explanation reach the user.
-      return req.reject(
-        400,
-        "Submission to SAP S/4HANA is not available yet — this environment isn't " +
-          'connected to an S/4HANA system.',
+
+      // Lock: only one submission per project at a time. A SUBMITTING row older than
+      // STALE_LOCK_MS belongs to a request that died mid-flight and may be taken over;
+      // its PENDING log is then reconciled below like any unknown outcome.
+      const staleBefore = new Date(Date.now() - STALE_LOCK_MS).toISOString();
+      const locked = await committed((tx) =>
+        tx.run(
+          UPDATE(SourcingProject).set({ status: 'SUBMITTING' })
+            .where`ID = ${id} and (status = 'APPROVED' or (status = 'SUBMITTING' and modifiedAt < ${staleBefore}))`,
+        ),
       );
+      if (!locked) {
+        return req.reject(
+          409,
+          'A submission to S/4HANA is already in progress for this project. ' +
+            'Wait a moment and refresh.',
+        );
+      }
+
+      let released = false;
+      const release = (status, extra = {}) => {
+        released = true;
+        return committed((tx) =>
+          tx.run(
+            UPDATE(SourcingProject)
+              .set({ status, ...extra })
+              .where({ ID: id }),
+          ),
+        );
+      };
+      const insertLog = async (entry) => {
+        const ID = cds.utils.uuid();
+        await committed((tx) =>
+          tx.run(INSERT.into(PurchaseReqLog).entries({ ID, project_ID: id, ...entry })),
+        );
+        return ID;
+      };
+      const updateLogs = (where, entry) =>
+        committed((tx) => tx.run(UPDATE(PurchaseReqLog).set(entry).where(where)));
+      const audit = (action, after) =>
+        committed((tx) =>
+          tx.run(
+            writeAudit(req, {
+              entityName: 'SourcingProject',
+              entityId: id,
+              action,
+              before: JSON.stringify({ status: 'APPROVED' }),
+              after: JSON.stringify(after),
+            }),
+          ),
+        );
+
+      try {
+        const config = s4.getConfig();
+        const reference = correlationRef(id);
+
+        // Reconcile: an earlier attempt whose outcome is unknown may already have
+        // created the requisition. Adopt it instead of creating a duplicate.
+        const unresolved = await read(
+          SELECT.from(PurchaseReqLog)
+            .columns('ID')
+            .where({ project_ID: id, status: { in: ['PENDING', 'UNKNOWN'] } }),
+        );
+        if (unresolved.length) {
+          const unresolvedIds = { ID: { in: unresolved.map((l) => l.ID) } };
+          let existing;
+          try {
+            existing = await s4.findByReference(reference);
+          } catch (error) {
+            await release('APPROVED');
+            return req.reject(
+              502,
+              'An earlier submission of this project has an unknown result, and S/4HANA ' +
+                `could not be checked for it (${error.message}). Nothing was sent; try again later.`,
+            );
+          }
+          if (existing) {
+            await updateLogs(unresolvedIds, {
+              status: 'SUCCESS',
+              s4RequisitionNumber: existing,
+              responseReceived: `Recovered on resubmit: S/4HANA already holds requisition ${existing} for ${reference}.`,
+            });
+            await release('SUBMITTED', { s4RequisitionNumber: existing });
+            await audit('SUBMIT_TO_S4', {
+              status: 'SUBMITTED',
+              s4RequisitionNumber: existing,
+              recovered: true,
+            });
+            req.info(
+              `Purchase Requisition ${existing} already existed in S/4HANA and is now linked.`,
+            );
+            return { s4RequisitionNumber: existing, status: 'SUBMITTED' };
+          }
+          await updateLogs(unresolvedIds, {
+            status: 'FAILED',
+            errorMsg: 'Not found in S/4HANA on resubmit — that attempt created nothing.',
+          });
+        }
+
+        // Map + validate locally, so the user gets row-specific messages instead of
+        // a terse S/4HANA message code — and S/4HANA is not called with known-bad data.
+        // approve already ran the same check; this catches master data changed since.
+        const { payload, errors } = await prepareRequisition(project, read, config.validateOnly);
+        if (errors.length) {
+          await insertLog({ status: 'FAILED', errorMsg: clip(errors.join(' '), MAX_ERROR) });
+          await release('APPROVED');
+          return req.reject(400, `Not sent to S/4HANA — fix these first: ${errors.join(' ')}`);
+        }
+
+        const logId = await insertLog({ status: 'PENDING', payloadSent: JSON.stringify(payload) });
+        let result;
+        try {
+          result = await s4.createPurchaseRequisition(payload);
+        } catch (error) {
+          const err = s4.toS4Error(error);
+          if (err.outcome === 'UNKNOWN') {
+            await updateLogs(
+              { ID: logId },
+              { status: 'UNKNOWN', errorMsg: clip(err.message, MAX_ERROR) },
+            );
+            await release('APPROVED');
+            return req.reject(
+              504,
+              "S/4HANA did not answer, so it's unclear whether the purchase requisition was " +
+                'created. Submitting again is safe: it first checks S/4HANA for this ' +
+                "project's requisition and won't create a duplicate.",
+            );
+          }
+          await updateLogs(
+            { ID: logId },
+            {
+              status: 'FAILED',
+              errorMsg: clip(err.message, MAX_ERROR),
+              responseReceived: clip(err.responseBody, MAX_RESPONSE),
+            },
+          );
+          await release('APPROVED');
+          // A 400 is about the data (the user can fix it); anything else — 401/403 from
+          // a wrong destination password, 404 from a wrong URL — is a connection problem.
+          return err.status === 400
+            ? req.reject(400, `S/4HANA rejected the purchase requisition: ${err.message}`)
+            : req.reject(502, `The S/4HANA call failed: ${err.message}`);
+        }
+
+        const response = clip(JSON.stringify(result.response), MAX_RESPONSE);
+        if (result.validatedOnly) {
+          await updateLogs({ ID: logId }, { status: 'VALIDATED', responseReceived: response });
+          await release('APPROVED');
+          await audit('VALIDATE_S4', { status: 'APPROVED', validatedOnly: true });
+          req.info(
+            'S/4HANA accepted the purchase requisition in validation-only mode — nothing was created.',
+          );
+          return { s4RequisitionNumber: null, status: 'VALIDATED' };
+        }
+
+        await updateLogs(
+          { ID: logId },
+          { status: 'SUCCESS', s4RequisitionNumber: result.number, responseReceived: response },
+        );
+        await release('SUBMITTED', { s4RequisitionNumber: result.number });
+        await audit('SUBMIT_TO_S4', {
+          status: 'SUBMITTED',
+          s4RequisitionNumber: result.number,
+          items: payload.to_PurchaseReqnItem.results.length,
+        });
+        req.info(`Purchase Requisition ${result.number} created in S/4HANA.`);
+        return { s4RequisitionNumber: result.number, status: 'SUBMITTED' };
+      } finally {
+        // An unexpected error (a bug, a DB failure) must not leave the project locked.
+        if (!released) await release('APPROVED').catch(() => {});
+      }
     });
 
     await super.init();

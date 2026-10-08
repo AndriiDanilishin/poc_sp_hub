@@ -729,17 +729,200 @@ Content-Type: application/json
 
 {}
 
-### submitToS4 on the APPROVED project — deliberate stub -> expect 400
-# The real S/4HANA OData call is not built yet (Phase 5, §21). The stub runs
-# every guard above, then refuses with a user-facing "not connected to an
-# S/4HANA system" message. 400 rather than 501 on purpose: UI5's V4 message
-# parser replaces any 501 text with a generic "functionality not supported"
-# string, so the explanation would never reach the Fiori user.
-POST {{host}}/api/sourcing/SourcingProjects({{projApproved}})/SourcingProjectService.submitToS4
+# --- submitToS4: Purchase Requisition in S/4HANA (§21, submitToS4.md) -------
+# Runs against the MOCK S/4HANA provider (cds.s4.provider = mock, the dev
+# default): it returns a fake PR number and honours two test triggers in an item
+# text — "[s4-reject]" (S/4-style 400) and "[s4-timeout]" (PR created, response
+# lost). Every flow creates its own project: a successful submit is terminal, so
+# the seeded APPROVED project must stay untouched for the freeze guards below.
+
+### S/4 flow: create a DRAFT project
+# @name s4Proj
+POST {{host}}/api/sourcing/SourcingProjects
+{{manager}}
+Content-Type: application/json
+
+{
+  "title": "api.http S/4 submission",
+  "budgetCurrency": "PLN",
+  "timelineEnd": "2027-03-31",
+  "materialGroup_code": "MG-OFF-001"
+}
+
+### S/4 flow: add a requirement WITHOUT a unit price
+# @name s4Req
+POST {{host}}/api/sourcing/Requirements
+{{manager}}
+Content-Type: application/json
+
+{
+  "project_ID": "{{s4Proj.response.body.ID}}",
+  "description": "Ergonomic office chair",
+  "quantity": 4,
+  "unit": "EA",
+  "materialGroup_code": "MG-OFF-001"
+}
+
+### S/4 flow: add a requirement in a unit S/4HANA has no mapping for
+# @name s4ReqBox
+POST {{host}}/api/sourcing/Requirements
+{{manager}}
+Content-Type: application/json
+
+{
+  "project_ID": "{{s4Proj.response.body.ID}}",
+  "description": "Printer paper",
+  "quantity": 10,
+  "unit": "BOX",
+  "unitPrice": 25,
+  "materialGroup_code": "MG-OFF-002"
+}
+
+### Guard: approve with a missing price and an unmapped unit -> expect 400
+# Approval freezes the project, so it runs the same readiness check as the
+# submit: the message names both items and what is wrong with each.
+POST {{host}}/api/sourcing/SourcingProjects({{s4Proj.response.body.ID}})/SourcingProjectService.approve
 {{manager}}
 Content-Type: application/json
 
 {}
+
+### S/4 flow: fix the price + delivery date while still DRAFT
+PATCH {{host}}/api/sourcing/Requirements({{s4Req.response.body.ID}})
+{{manager}}
+Content-Type: application/json
+
+{ "unitPrice": 1450, "deliveryDate": "2027-02-15" }
+
+### S/4 flow: drop the unmappable item
+DELETE {{host}}/api/sourcing/Requirements({{s4ReqBox.response.body.ID}})
+{{manager}}
+
+### S/4 flow: override the cost center for this project
+PATCH {{host}}/api/sourcing/SourcingProjects({{s4Proj.response.body.ID}})
+{{manager}}
+Content-Type: application/json
+
+{ "costCenter": "26101101" }
+
+### S/4 flow: approve — now ready
+POST {{host}}/api/sourcing/SourcingProjects({{s4Proj.response.body.ID}})/SourcingProjectService.approve
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### S/4 flow: submitToS4 creates the Purchase Requisition -> status SUBMITTED + PR number
+POST {{host}}/api/sourcing/SourcingProjects({{s4Proj.response.body.ID}})/SourcingProjectService.submitToS4
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### S/4 flow: the project carries the PR number; the log has one SUCCESS entry
+GET {{host}}/api/sourcing/SourcingProjects({{s4Proj.response.body.ID}})?$select=status,s4RequisitionNumber&$expand=requisitionLog($select=status,s4RequisitionNumber,errorMsg)
+{{manager}}
+
+### Guard: submit the same project again — SUBMITTED is terminal -> expect 409
+POST {{host}}/api/sourcing/SourcingProjects({{s4Proj.response.body.ID}})/SourcingProjectService.submitToS4
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### Guard: the submission log is system-written, never by hand -> expect 405
+POST {{host}}/api/sourcing/PurchaseReqLogs
+{{manager}}
+Content-Type: application/json
+
+{ "project_ID": "{{s4Proj.response.body.ID}}", "status": "SUCCESS" }
+
+### S/4 rejection: create a project whose item S/4HANA will refuse
+# @name s4ProjReject
+POST {{host}}/api/sourcing/SourcingProjects
+{{manager}}
+Content-Type: application/json
+
+{ "title": "api.http S/4 rejection", "budgetCurrency": "PLN", "timelineEnd": "2027-03-31" }
+
+### S/4 rejection: add the item (mock trigger "[s4-reject]")
+POST {{host}}/api/sourcing/Requirements
+{{manager}}
+Content-Type: application/json
+
+{
+  "project_ID": "{{s4ProjReject.response.body.ID}}",
+  "description": "Standing desk [s4-reject]",
+  "quantity": 2,
+  "unit": "PC",
+  "unitPrice": 2300,
+  "materialGroup_code": "MG-OFF-001"
+}
+
+### S/4 rejection: approve
+POST {{host}}/api/sourcing/SourcingProjects({{s4ProjReject.response.body.ID}})/SourcingProjectService.approve
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### S/4 rejection: submit — S/4HANA's own message is passed through -> expect 400
+POST {{host}}/api/sourcing/SourcingProjects({{s4ProjReject.response.body.ID}})/SourcingProjectService.submitToS4
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### S/4 rejection: project is back to APPROVED (retry possible), log entry FAILED
+GET {{host}}/api/sourcing/SourcingProjects({{s4ProjReject.response.body.ID}})?$select=status,s4RequisitionNumber&$expand=requisitionLog($select=status,errorMsg)
+{{manager}}
+
+### Unknown outcome: create a project whose S/4HANA response gets lost
+# @name s4ProjTimeout
+POST {{host}}/api/sourcing/SourcingProjects
+{{manager}}
+Content-Type: application/json
+
+{ "title": "api.http S/4 timeout", "budgetCurrency": "PLN", "timelineEnd": "2027-03-31" }
+
+### Unknown outcome: add the item (mock trigger "[s4-timeout]")
+POST {{host}}/api/sourcing/Requirements
+{{manager}}
+Content-Type: application/json
+
+{
+  "project_ID": "{{s4ProjTimeout.response.body.ID}}",
+  "description": "Monitor arm [s4-timeout]",
+  "quantity": 3,
+  "unit": "PC",
+  "unitPrice": 320,
+  "materialGroup_code": "MG-IT-002"
+}
+
+### Unknown outcome: approve
+POST {{host}}/api/sourcing/SourcingProjects({{s4ProjTimeout.response.body.ID}})/SourcingProjectService.approve
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### Unknown outcome: submit — S/4HANA created the PR but no answer arrived -> expect 504
+POST {{host}}/api/sourcing/SourcingProjects({{s4ProjTimeout.response.body.ID}})/SourcingProjectService.submitToS4
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### Unknown outcome: resubmit reconciles — adopts the existing PR instead of a duplicate
+POST {{host}}/api/sourcing/SourcingProjects({{s4ProjTimeout.response.body.ID}})/SourcingProjectService.submitToS4
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### Unknown outcome: SUBMITTED with the recovered number; the UNKNOWN log entry became SUCCESS
+GET {{host}}/api/sourcing/SourcingProjects({{s4ProjTimeout.response.body.ID}})?$select=status,s4RequisitionNumber&$expand=requisitionLog($select=status,s4RequisitionNumber,responseReceived)
+{{manager}}
 
 # --- Authorization gates (Phase 1.1) -----------------------------------------
 # approve / submitToS4 are the sign-off + S/4HANA gate: only ProcurementManager

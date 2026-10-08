@@ -92,13 +92,19 @@ entity SourcingProject : cuid, managed {
     description        : LargeString;
     category           : String(50);
     materialGroup      : Association to MaterialGroup;
-    status             : String(20) default 'DRAFT'; // DRAFT, APPROVED, SUBMITTED
+    status             : String(20) default 'DRAFT'; // DRAFT, APPROVED, SUBMITTING, SUBMITTED
     priority           : String(10);
     timelineStart      : Date;
     timelineEnd        : Date;
     budgetAmount       : Decimal(15, 2);
     budgetCurrency     : String(3);
-    requirements       : Composition of many Requirement on requirements.project = $self;
+    // Optional S/4HANA cost center for the Purchase Requisition's account assignment;
+    // empty = the tenant default (cds.env.s4.defaults). The only org field a project
+    // may override (§21).
+    costCenter         : String(10);
+    // Set once S/4HANA has created the Purchase Requisition (status SUBMITTED).
+    s4RequisitionNumber : String(10);
+    requirements      : Composition of many Requirement on requirements.project = $self;
     commodityCodes     : Composition of many SourcingProjectCommodity on commodityCodes.project = $self;
     suggestedSuppliers : Composition of many SourcingProjectSupplier on suggestedSuppliers.project = $self;
     risks              : Composition of many Risk on risks.project = $self;
@@ -117,6 +123,10 @@ entity Requirement : cuid {
     // instruments vs. PPE) aren't collapsed into one bucket.
     materialGroup : Association to MaterialGroup;
     commodityCode : Association to CommodityCode;
+    // Required for the S/4HANA Purchase Requisition item (§21). Entered by a human
+    // while the project is DRAFT; deliveryDate starts as the workspace requestedDate.
+    unitPrice     : Decimal(15, 2);
+    deliveryDate  : Date;
     aiGenerated   : Boolean default false;
 }
 
@@ -161,7 +171,9 @@ entity PurchaseReqLog : cuid, managed {
     s4RequisitionNumber : String(10);
     payloadSent         : LargeString;
     responseReceived    : LargeString;
-    status              : String(15) default 'PENDING'; // PENDING, SUCCESS, FAILED
+    // PENDING (call in flight), SUCCESS, FAILED, VALIDATED (validation-only run, nothing
+    // created), UNKNOWN (timeout — S/4HANA may have created it; reconciled on next submit)
+    status              : String(15) default 'PENDING';
     errorMsg            : String(1000);
 }
 
@@ -173,6 +185,10 @@ entity MaterialGroup {
     key code     : String(18);
         name     : String(120);
         category : String(60);
+        // The S/4HANA material group this internal code maps to (max 9 chars in S/4).
+        // Internal codes stay because the RAG corpus grounds on them; a requirement whose
+        // group has no s4Code blocks Purchase Requisition submission.
+        s4Code   : String(9);
 }
 
 entity CommodityCode {

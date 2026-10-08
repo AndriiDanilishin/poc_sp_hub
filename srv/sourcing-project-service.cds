@@ -7,8 +7,9 @@ service SourcingProjectService @(path: '/api/sourcing', requires: 'authenticated
             *,
             case status
                 when 'DRAFT'     then 2 // yellow: work in progress
-                when 'APPROVED'  then 3 // green: signed off
-                when 'SUBMITTED' then 3 // green: sent to S/4HANA
+                when 'APPROVED'   then 3 // green: signed off
+                when 'SUBMITTING' then 2 // yellow: S/4HANA call in flight
+                when 'SUBMITTED'  then 3 // green: sent to S/4HANA
                 else 0
             end as statusCriticality : Integer
         }
@@ -32,11 +33,19 @@ service SourcingProjectService @(path: '/api/sourcing', requires: 'authenticated
             @Core.OperationAvailable: {$edmJson: {$Eq: [{$Path: 'in/status'}, 'DRAFT']}}
             action approve()       returns SourcingProjects;
 
-            // Create the Purchase Requisition in SAP S/4HANA Cloud (Phase 5).
+            // Create the Purchase Requisition in SAP S/4HANA Cloud (§21, submitToS4.md).
             // Role-gated: only a ProcurementManager may push an approved project to S/4HANA.
+            // Also offered while SUBMITTING: the handler refuses a live lock (409) but lets
+            // a stale one — a request that died mid-flight — be taken over and reconciled.
             @(requires: 'ProcurementManager')
-            @Common.SideEffects: {TargetProperties: ['_it/status']}
-            @Core.OperationAvailable: {$edmJson: {$Eq: [{$Path: 'in/status'}, 'APPROVED']}}
+            @Common.SideEffects: {
+                TargetProperties: ['_it/status', '_it/s4RequisitionNumber'],
+                TargetEntities  : ['_it/requisitionLog']
+            }
+            @Core.OperationAvailable: {$edmJson: {$Or: [
+                {$Eq: [{$Path: 'in/status'}, 'APPROVED']},
+                {$Eq: [{$Path: 'in/status'}, 'SUBMITTING']}
+            ]}}
             action submitToS4()    returns {
                 s4RequisitionNumber : String;
                 status              : String;
@@ -63,7 +72,18 @@ service SourcingProjectService @(path: '/api/sourcing', requires: 'authenticated
 
     // Submission history is a system-written audit trail, never edited by hand.
     @readonly
-    entity PurchaseReqLogs            as projection on db.PurchaseReqLog;
+    entity PurchaseReqLogs            as
+        projection on db.PurchaseReqLog {
+            *,
+            case status
+                when 'SUCCESS'   then 3 // green: requisition created
+                when 'VALIDATED' then 3 // green: accepted in validation-only mode
+                when 'PENDING'   then 2 // yellow: call in flight
+                when 'UNKNOWN'   then 2 // yellow: reconciled on the next submit
+                when 'FAILED'    then 1 // red
+                else 0
+            end as statusCriticality : Integer
+        };
 
     // Master data mirrored from S/4HANA, exposed read-only for value help.
     @readonly

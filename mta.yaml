@@ -36,6 +36,16 @@ modules:
       AI_EMBED_MODEL: text-embedding-3-large
       AI_DESTINATION_NAME: GenAIHub
       AI_REDACT_PII: 'true'
+      # S/4HANA Purchase Requisition (submitToS4, §21). S4HANA_PR is a subaccount
+      # destination maintained by hand in the cockpit (BasicAuthentication with the
+      # SAP_COM_0102 communication user) — the password never goes through git.
+      # S4_VALIDATE_ONLY=true makes S/4HANA only check the PR (nothing is created);
+      # switch it off once a validation run succeeds, either here (then redeploy) or
+      # until the next deploy with:
+      #   cf set-env poc-sp-hub-srv S4_VALIDATE_ONLY false && cf restart poc-sp-hub-srv
+      S4_PROVIDER: destination
+      S4_DESTINATION_NAME: S4HANA_PR
+      S4_VALIDATE_ONLY: 'true'
     requires:
       - name: poc-sp-hub-db
       - name: poc-sp-hub-auth

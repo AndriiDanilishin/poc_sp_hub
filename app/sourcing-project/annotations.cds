@@ -31,6 +31,7 @@ annotate service.SourcingProjects with @(
         },
         {Value: priority},
         {Value: budgetAmount},
+        {Value: s4RequisitionNumber},
         // Bound actions surface as buttons in the list toolbar too.
         {
             $Type : 'UI.DataFieldForAction',
@@ -71,6 +72,12 @@ annotate service.SourcingProjects with @(
         {Value: timelineEnd},
         {Value: budgetAmount},
         {Value: budgetCurrency},
+    ]},
+    // S/4HANA Purchase Requisition data (§21). The org data (plant, purchasing
+    // group, G/L account) is fixed tenant config; only the cost center may differ.
+    UI.FieldGroup #S4     : {Data: [
+        {Value: s4RequisitionNumber},
+        {Value: costCenter},
     ]},
     UI.Facets             : [
         {
@@ -115,6 +122,25 @@ annotate service.SourcingProjects with @(
             Label : 'Attachments',
             Target: 'attachments/@UI.LineItem',
         },
+        {
+            $Type : 'UI.CollectionFacet',
+            ID    : 'S4Facet',
+            Label : 'S/4HANA Submission',
+            Facets: [
+                {
+                    $Type : 'UI.ReferenceFacet',
+                    ID    : 'S4DataFacet',
+                    Label : 'Purchase Requisition',
+                    Target: '@UI.FieldGroup#S4',
+                },
+                {
+                    $Type : 'UI.ReferenceFacet',
+                    ID    : 'S4LogFacet',
+                    Label : 'Submission Log',
+                    Target: 'requisitionLog/@UI.LineItem',
+                },
+            ],
+        },
     ],
 );
 
@@ -129,6 +155,9 @@ annotate service.SourcingProjects with {
     timelineEnd    @title: 'Timeline End';
     budgetAmount   @title: 'Budget Amount';
     budgetCurrency @title: 'Currency';
+    costCenter     @title: 'Cost Center (S/4HANA)'
+                   @Common.QuickInfo: 'Leave empty to use the default cost center';
+    s4RequisitionNumber @title: 'Purchase Requisition' @readonly;
 };
 
 // ---------------------------------------------------------------------------
@@ -141,6 +170,8 @@ annotate service.Requirements with @(UI.LineItem: [
     },
     {Value: quantity},
     {Value: unit},
+    {Value: unitPrice},
+    {Value: deliveryDate},
     {Value: materialGroup_code},
     {Value: commodityCode_code},
     {Value: aiGenerated},
@@ -148,6 +179,8 @@ annotate service.Requirements with @(UI.LineItem: [
     description   @title: 'Description';
     quantity      @title: 'Quantity';
     unit          @title: 'Unit';
+    unitPrice     @title: 'Unit Price';
+    deliveryDate  @title: 'Delivery Date';
     materialGroup @title             : 'Material Group'
                   @Common.Text       : materialGroup.name
                   @Common.TextArrangement: #TextFirst;
@@ -212,4 +245,31 @@ annotate service.Attachments with @(UI.LineItem: [
     fileType @title: 'File Type';
     fileSize @title: 'Size';
     url      @title: 'URL';
+};
+
+// Submission history — every attempt to reach S/4HANA, newest first (§21).
+annotate service.PurchaseReqLogs with @(
+    UI.LineItem           : [
+        {Value: createdAt},
+        {
+            Value      : status,
+            Criticality: statusCriticality
+        },
+        {Value: s4RequisitionNumber},
+        {Value: errorMsg},
+        {Value: createdBy},
+    ],
+    UI.PresentationVariant: {
+        SortOrder     : [{
+            Property  : createdAt,
+            Descending: true
+        }],
+        Visualizations: ['@UI.LineItem']
+    },
+) {
+    createdAt           @title: 'Submitted At';
+    createdBy           @title: 'Submitted By';
+    status              @title: 'Result';
+    s4RequisitionNumber @title: 'Purchase Requisition';
+    errorMsg            @title: 'Message';
 };

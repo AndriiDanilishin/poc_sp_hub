@@ -5,6 +5,7 @@
     "@cap-js/hana": "^2.8",
     "@sap-cloud-sdk/connectivity": "^3",
     "@sap-cloud-sdk/http-client": "^3",
+    "@sap-cloud-sdk/resilience": "^3",
     "@sap/cds": "10.0.5",
     "@sap/xssec": "^4",
     "mbt": "^1.2.49",
@@ -35,6 +36,41 @@
   },
   "private": true,
   "cds": {
+    "s4": {
+      "provider": "mock",
+      "destinationName": "S4HANA_PR",
+      "servicePath": "/sap/opu/odata/sap/API_PURCHASEREQ_PROCESS_SRV",
+      "validateOnly": false,
+      "timeoutMs": 30000,
+      "defaults": {
+        "purchaseRequisitionType": "NB",
+        "plant": "2610",
+        "companyCode": "2610",
+        "purchasingOrganization": "2610",
+        "purchasingGroup": "001",
+        "itemCategory": "0",
+        "accountAssignmentCategory": "K",
+        "costCenter": "26101101",
+        "glAccount": "51100000",
+        "currency": "PLN"
+      },
+      "unitMap": {
+        "PC": "PC",
+        "PCS": "PC",
+        "EA": "PC",
+        "EACH": "PC",
+        "PIECE": "PC",
+        "PIECES": "PC",
+        "UNIT": "PC",
+        "UNITS": "PC",
+        "KG": "KG",
+        "G": "G",
+        "L": "L",
+        "ML": "ML",
+        "M": "M",
+        "H": "H"
+      }
+    },
     "requires": {
       "db": {
         "kind": "sqlite",

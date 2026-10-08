@@ -1,0 +1,21 @@
+_schema-version: '3.2'
+ID: poc-sp-hub.free-quota
+extends: poc-sp-hub
+
+# Deploy-time overrides for orgs on a small CF memory quota (e.g. FREE_QUOTA,
+# 4 GB shared across all spaces). Usage:
+#   cf deploy mta_archives/poc-sp-hub_1.0.0.mtar -e free-quota.mtaext
+# mta.yaml itself stays unchanged for accounts with more headroom.
+
+parameters:
+  # Sequential, so the HDI deployer finishes and releases its memory before
+  # the CAP service stages — they would not both fit at once.
+  enable-parallel-deployments: false
+
+modules:
+  - name: poc-sp-hub-srv
+    parameters:
+      memory: 512M
+  - name: poc-sp-hub-db-deployer
+    parameters:
+      memory: 256M

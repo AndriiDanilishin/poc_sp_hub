@@ -369,6 +369,8 @@ module.exports = class WorkspaceService extends cds.ApplicationService {
           unit: i.unit,
           materialGroup_code: i.materialGroup_code || null,
           commodityCode_code: i.commodityCode_code || null,
+          // Starting value for the S/4HANA item delivery date (§21); editable while DRAFT.
+          deliveryDate: i.requestedDate || null,
           aiGenerated: i.aiStatus === 'ACCEPTED',
         })),
       );
