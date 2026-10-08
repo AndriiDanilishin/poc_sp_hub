@@ -18,6 +18,44 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
       return typeof last === 'object' ? last.ID : last;
     };
 
+    // ---- Criticality (status / severity colours) ----------------------------
+    //
+    // Virtual elements filled here instead of a SQL CASE in the service CDS: on the
+    // draft-enabled entities CAP re-renders a CASE for the _drafts tables with bound
+    // literals, which HANA rejected twice (see the CDS comment). Plain JS can't break
+    // per database. Each read must carry the source column, so it is added when a
+    // request selects only the criticality.
+    const STATUS_CRITICALITY = { DRAFT: 2, APPROVED: 3, SUBMITTING: 2, SUBMITTED: 3 };
+    const SEVERITY_CRITICALITY = { Critical: 1, High: 1, Medium: 2, Low: 3 };
+
+    const selectSourceOf = (computed, source) => (req) => {
+      const columns = req.query?.SELECT?.columns;
+      if (!columns || columns.some((c) => c === '*' || c.ref?.[0] === source)) return;
+      if (columns.some((c) => c.ref?.[0] === computed)) columns.push({ ref: [source] });
+    };
+    const fillCriticality = (rows, computed, source, map) => {
+      for (const row of [].concat(rows ?? [])) {
+        if (row && row[source] !== undefined) row[computed] = map[row[source]] ?? 0;
+      }
+    };
+
+    for (const entity of [SourcingProjects, SourcingProjects.drafts]) {
+      this.before('READ', entity, selectSourceOf('statusCriticality', 'status'));
+      this.after('READ', entity, (rows) => {
+        fillCriticality(rows, 'statusCriticality', 'status', STATUS_CRITICALITY);
+        // Risks expanded under a project are not a READ of Risks.
+        for (const row of [].concat(rows ?? [])) {
+          fillCriticality(row?.risks, 'severityCriticality', 'severity', SEVERITY_CRITICALITY);
+        }
+      });
+    }
+    for (const entity of [Risks, Risks.drafts]) {
+      this.before('READ', entity, selectSourceOf('severityCriticality', 'severity'));
+      this.after('READ', entity, (rows) =>
+        fillCriticality(rows, 'severityCriticality', 'severity', SEVERITY_CRITICALITY),
+      );
+    }
+
     // ---- Approval freeze (§20, §25) ---------------------------------------
     //
     // `approve` gates the DRAFT -> APPROVED transition, but that only protected

@@ -15,17 +15,12 @@ service SourcingProjectService @(path: '/api/sourcing', requires: 'authenticated
             // save. An association keeps it out of the draft; it stays readable.
             requisitionLog : Association to many PurchaseReqLogs
                                  on requisitionLog.project = $self,
-            // Searched CASE, not `case status when 'DRAFT'`: on a draft-enabled entity CAP
-            // re-renders this for the _drafts table, and its HANA renderer turns a simple
-            // CASE into `when ? = true` — a HANA syntax error that made the whole list
-            // fail with 500 on BTP (SQLite accepts it, so local tests passed).
-            case
-                when status = 'DRAFT'      then 2 // yellow: work in progress
-                when status = 'APPROVED'   then 3 // green: signed off
-                when status = 'SUBMITTING' then 2 // yellow: S/4HANA call in flight
-                when status = 'SUBMITTED'  then 3 // green: sent to S/4HANA
-                else 0
-            end as statusCriticality : Integer
+            // Filled in JS after READ (sourcing-project-service.js), not by a SQL CASE: on
+            // a draft-enabled entity CAP re-renders a CASE for the _drafts table with its
+            // literals bound as parameters, which failed on HANA twice (500 on BTP) —
+            // first `when ? = true` (syntax error), then numeric branch values bound as
+            // strings ("Argument must be a string"). SQLite accepted both.
+            virtual statusCriticality   : Integer
         }
         actions {
             // AI drafts title, description, timeline, priority, risks and suggested
@@ -79,14 +74,8 @@ service SourcingProjectService @(path: '/api/sourcing', requires: 'authenticated
     entity Risks                      as
         projection on db.Risk {
             *,
-            // Searched CASE — Risks is a draft child; see statusCriticality above.
-            case
-                when severity = 'Critical' then 1 // red
-                when severity = 'High'     then 1 // red
-                when severity = 'Medium'   then 2 // yellow
-                when severity = 'Low'      then 3 // green
-                else 0
-            end as severityCriticality : Integer
+            // Risks is a draft child: filled in JS after READ, see statusCriticality.
+            virtual severityCriticality : Integer
         };
 
     entity SourcingProjectSuppliers   as projection on db.SourcingProjectSupplier;
