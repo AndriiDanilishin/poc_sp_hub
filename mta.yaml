@@ -39,13 +39,15 @@ modules:
       # S/4HANA Purchase Requisition (submitToS4, §21). S4HANA_PR is a subaccount
       # destination maintained by hand in the cockpit (BasicAuthentication with the
       # SAP_COM_0102 communication user) — the password never goes through git.
-      # S4_VALIDATE_ONLY=true makes S/4HANA only check the PR (nothing is created);
-      # switch it off once a validation run succeeds, either here (then redeploy) or
-      # until the next deploy with:
-      #   cf set-env poc-sp-hub-srv S4_VALIDATE_ONLY false && cf restart poc-sp-hub-srv
+      # S4_VALIDATE_ONLY=false: Submit creates the Purchase Requisition in S/4HANA.
+      # Switched on after validation runs and a first real PR (10000002) succeeded on
+      # 2026-10-09. Set 'true' to make S/4HANA only check the PR (nothing is created),
+      # e.g. when pointing at a new tenant — here (then redeploy) or until the next
+      # deploy with:
+      #   cf set-env poc-sp-hub-srv S4_VALIDATE_ONLY true && cf restart poc-sp-hub-srv
       S4_PROVIDER: destination
       S4_DESTINATION_NAME: S4HANA_PR
-      S4_VALIDATE_ONLY: 'true'
+      S4_VALIDATE_ONLY: 'false'
     requires:
       - name: poc-sp-hub-db
       - name: poc-sp-hub-auth
