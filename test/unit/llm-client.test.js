@@ -56,6 +56,18 @@ test('redactPii scrubs email / phone / IBAN / card but keeps product text', () =
   assert.doesNotMatch(out, /jane\.doe@acme\.com/);
 });
 
+test('redactPii keeps dates and bare procurement codes', () => {
+  const out = llm.redactPii(
+    'Needed by 2026-11-30, or 15.11.2026 at the latest. Cost center 26101101, ' +
+      'UNSPSC 41100000. Call +48 22 555 1234 or (030) 1234567.',
+  );
+  assert.match(out, /2026-11-30/);
+  assert.match(out, /15\.11\.2026/);
+  assert.match(out, /26101101/);
+  assert.match(out, /41100000/);
+  assert.equal(out.match(/\[PHONE\]/g)?.length, 2);
+});
+
 test('mock chat returns a schema-valid object deterministically', async () => {
   const schema = {
     type: 'object',

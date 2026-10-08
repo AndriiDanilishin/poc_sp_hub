@@ -1,0 +1,18 @@
+Purchase request - Lab 2 setup, Q4 2026
+
+Hello Procurement,
+
+Please source the following items for the new Lab 2. Delivery to building B,
+room 2.14. All items are needed by 2026-11-30 unless noted otherwise.
+
+1. Inverted microscope with phase contrast, 40x objective - 2 pieces
+2. Laboratory centrifuge, benchtop, up to 6000 rpm - 1 piece, needed by 2026-11-15
+3. Nitrile examination gloves, size M, box of 100 - 20 boxes
+4. Safety goggles, anti-fog, EN 166 certified - 15 pieces
+5. Laptop 14", 16 GB RAM, 512 GB SSD, for lab data analysis - 3 pieces, needed by 2026-12-15
+
+Budget is approx. 45,000 PLN in total. Cost center 26101101.
+
+Thanks,
+Anna Kowalska
+Lab Operations

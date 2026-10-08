@@ -77,8 +77,23 @@ const PII_PATTERNS = [
   // Credit-card-like 13–16 digit runs (optionally grouped).
   [/\b(?:\d[ -]?){13,16}\b/g, '[CARD]'],
   // International-ish phone numbers (7+ digits with separators), avoiding bare qty.
-  [/(?:(?:\+|00)\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?){2,4}\d{2,4}/g, '[PHONE]'],
+  [/(?:(?:\+|00)\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?){2,4}\d{2,4}/g, redactPhone],
 ];
+
+// The phone pattern also matches dates ("2026-11-30") and bare codes (cost center
+// 26101101, UNSPSC 41100000). Redacting those blanked every requested date before
+// extraction saw it, so a match only counts as a phone when it has a +/00 prefix or
+// a separator, isn't a date, and has 7+ digits.
+const DATE_LIKE = /^(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}[-./]\d{1,2}[-./]\d{2,4})$/;
+
+function redactPhone(match) {
+  const trimmed = match.trim();
+  if (DATE_LIKE.test(trimmed)) return match;
+  const prefixed = /^(?:\+|00)/.test(trimmed);
+  if (!prefixed && !/[\s.()-]/.test(trimmed)) return match;
+  if (trimmed.replace(/\D/g, '').length < 7) return match;
+  return '[PHONE]';
+}
 
 function redactPii(text) {
   let out = String(text ?? '');
