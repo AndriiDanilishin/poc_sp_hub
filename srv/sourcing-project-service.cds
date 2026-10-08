@@ -2,9 +2,19 @@ using {sourcing as db} from '../db/sourcing-schema';
 
 service SourcingProjectService @(path: '/api/sourcing', requires: 'authenticated-user') {
 
+    // Draft-enabled so the Object Page offers Edit / Save / Cancel: unit price and
+    // delivery date must be entered by a human before approve can pass the S/4HANA
+    // readiness check. Editing is limited to DRAFT projects — UI.UpdateHidden hides the
+    // button, and the EDIT handler rejects it server-side (the approval freeze, §25).
+    @odata.draft.enabled
     entity SourcingProjects           as
         projection on db.SourcingProject {
             *,
+            // The submission log is a system-written audit trail, not user content: as a
+            // composition it would be copied into every edit draft and written back on
+            // save. An association keeps it out of the draft; it stays readable.
+            requisitionLog : Association to many PurchaseReqLogs
+                                 on requisitionLog.project = $self,
             case status
                 when 'DRAFT'     then 2 // yellow: work in progress
                 when 'APPROVED'   then 3 // green: signed off
@@ -22,7 +32,11 @@ service SourcingProjectService @(path: '/api/sourcing', requires: 'authenticated
                 TargetProperties  : ['_it/status', '_it/title', '_it/priority'],
                 TargetEntities    : ['_it/risks', '_it/suggestedSuppliers']
             }
-            @Core.OperationAvailable: {$edmJson: {$Eq: [{$Path: 'in/status'}, 'DRAFT']}}
+            // Only on the saved project (IsActiveEntity), never inside an open edit.
+            @Core.OperationAvailable: {$edmJson: {$And: [
+                {$Eq: [{$Path: 'in/status'}, 'DRAFT']},
+                {$Path: 'in/IsActiveEntity'}
+            ]}}
             action generateDraft() returns SourcingProjects;
 
             // Procurement Manager signs off; DRAFT -> APPROVED. Human-only, no AI.
@@ -30,7 +44,11 @@ service SourcingProjectService @(path: '/api/sourcing', requires: 'authenticated
             // ProcurementManager may approve (a plain authenticated requester cannot).
             @(requires: 'ProcurementManager')
             @Common.SideEffects: {TargetProperties: ['_it/status']}
-            @Core.OperationAvailable: {$edmJson: {$Eq: [{$Path: 'in/status'}, 'DRAFT']}}
+            // Only on the saved project (IsActiveEntity), never inside an open edit.
+            @Core.OperationAvailable: {$edmJson: {$And: [
+                {$Eq: [{$Path: 'in/status'}, 'DRAFT']},
+                {$Path: 'in/IsActiveEntity'}
+            ]}}
             action approve()       returns SourcingProjects;
 
             // Create the Purchase Requisition in SAP S/4HANA Cloud (§21, submitToS4.md).

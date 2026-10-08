@@ -4,6 +4,12 @@ using SourcingProjectService as service from '../../srv/sourcing-project-service
 // Sourcing Project — List Report + Object Page
 // ---------------------------------------------------------------------------
 annotate service.SourcingProjects with @(
+    // Edit only while DRAFT: approval freezes the project (§25). The EDIT handler
+    // refuses it server-side as well. Projects are created by promoting a workspace,
+    // so the list gets no Create button — CreateHidden, not InsertRestrictions:
+    // CAP enforces the latter and would also refuse POST from API clients (405).
+    UI.UpdateHidden       : {$edmJson: {$Ne: [{$Path: 'status'}, 'DRAFT']}},
+    UI.CreateHidden       : true,
     UI.HeaderInfo         : {
         TypeName      : 'Sourcing Project',
         TypeNamePlural: 'Sourcing Projects',
@@ -181,13 +187,30 @@ annotate service.Requirements with @(UI.LineItem: [
     unit          @title: 'Unit';
     unitPrice     @title: 'Unit Price';
     deliveryDate  @title: 'Delivery Date';
+    // Value help from master data, so an edited code can't be a dangling reference.
     materialGroup @title             : 'Material Group'
                   @Common.Text       : materialGroup.name
-                  @Common.TextArrangement: #TextFirst;
+                  @Common.TextArrangement: #TextFirst
+                  @Common.ValueListWithFixedValues
+                  @Common.ValueList  : {
+                      CollectionPath: 'MaterialGroups',
+                      Parameters    : [
+                          {$Type: 'Common.ValueListParameterInOut', LocalDataProperty: materialGroup_code, ValueListProperty: 'code'},
+                          {$Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'name'},
+                      ]
+                  };
     commodityCode @title             : 'Commodity'
                   @Common.Text       : commodityCode.description
-                  @Common.TextArrangement: #TextFirst;
-    aiGenerated   @title: 'AI Generated';
+                  @Common.TextArrangement: #TextFirst
+                  @Common.ValueListWithFixedValues
+                  @Common.ValueList  : {
+                      CollectionPath: 'CommodityCodes',
+                      Parameters    : [
+                          {$Type: 'Common.ValueListParameterInOut', LocalDataProperty: commodityCode_code, ValueListProperty: 'code'},
+                          {$Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'description'},
+                      ]
+                  };
+    aiGenerated   @title: 'AI Generated' @readonly;
 };
 
 annotate service.Risks with @(UI.LineItem: [
@@ -204,7 +227,7 @@ annotate service.Risks with @(UI.LineItem: [
     severity    @title: 'Severity';
     category    @title: 'Category';
     mitigation  @title: 'Mitigation';
-    aiGenerated @title: 'AI Generated';
+    aiGenerated @title: 'AI Generated' @readonly;
 };
 
 // Supplier is keyed by its S/4HANA business-partner number, so the raw FK reads
@@ -219,10 +242,17 @@ annotate service.SourcingProjectSuppliers with @(UI.LineItem: [
 ]) {
     supplier        @title             : 'Supplier'
                     @Common.Text       : supplier.name
-                    @Common.TextArrangement: #TextFirst;
+                    @Common.TextArrangement: #TextFirst
+                    @Common.ValueList  : {
+                        CollectionPath: 'Suppliers',
+                        Parameters    : [
+                            {$Type: 'Common.ValueListParameterInOut', LocalDataProperty: supplier_ID, ValueListProperty: 'ID'},
+                            {$Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'name'},
+                        ]
+                    };
     rationale       @title: 'Rationale';
-    confidenceScore @title: 'Confidence';
-    aiGenerated     @title: 'AI Generated';
+    confidenceScore @title: 'Confidence' @readonly;
+    aiGenerated     @title: 'AI Generated' @readonly;
 };
 
 annotate service.SourcingProjectCommodities with @(UI.LineItem: [
@@ -231,8 +261,16 @@ annotate service.SourcingProjectCommodities with @(UI.LineItem: [
 ]) {
     commodityCode @title             : 'Commodity Code'
                   @Common.Text       : commodityCode.description
-                  @Common.TextArrangement: #TextFirst;
-    aiGenerated   @title: 'AI Generated';
+                  @Common.TextArrangement: #TextFirst
+                  @Common.ValueListWithFixedValues
+                  @Common.ValueList  : {
+                      CollectionPath: 'CommodityCodes',
+                      Parameters    : [
+                          {$Type: 'Common.ValueListParameterInOut', LocalDataProperty: commodityCode_code, ValueListProperty: 'code'},
+                          {$Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'description'},
+                      ]
+                  };
+    aiGenerated   @title: 'AI Generated' @readonly;
 };
 
 annotate service.Attachments with @(UI.LineItem: [

@@ -104,7 +104,9 @@ function makeResolver(vars, named) {
         if (cap) {
           const body = named[cap[1]];
           if (body === undefined) return whole;
-          const value = cap[2].split('.').reduce((o, k) => (o == null ? undefined : o[k]), body);
+          // REST Client's JSONPath form `$.value[0].ID` and the dotted `a.b` both work.
+          const path = cap[2].replace(/^\$\./, '').replace(/\[(\d+)\]/g, '.$1');
+          const value = path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), body);
           return value === undefined || value === null ? whole : String(value);
         }
         return Object.prototype.hasOwnProperty.call(vars, expr) ? vars[expr] : whole;

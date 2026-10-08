@@ -92,6 +92,46 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
       this.before(['CREATE', 'UPDATE', 'DELETE'], entity, guardChild);
     });
 
+    // ---- Draft editing ------------------------------------------------------
+    //
+    // SourcingProjects is draft-enabled so the Object Page can edit the S/4HANA fields
+    // (unit price, delivery date). The freeze above already refuses SAVING a draft of a
+    // non-DRAFT project, but only after the user has typed their changes — refuse the
+    // Edit itself. (UI.UpdateHidden hides the button; this covers direct API calls.)
+    this.before('EDIT', SourcingProjects, async (req) => {
+      const status = await projectStatusOf(boundKey(req));
+      if (status && status !== 'DRAFT') {
+        return req.reject(409, FROZEN_MSG(status));
+      }
+    });
+
+    this.after('SAVE', SourcingProjects, async (project, req) => {
+      await writeAudit(req, {
+        entityName: 'SourcingProject',
+        entityId: project?.ID ?? boundKey(req),
+        action: 'EDIT',
+      });
+    });
+
+    // generateDraft and approve act on the saved project. While someone has unsaved
+    // edits open, approving would sign off data that is about to change (and the edit
+    // could then no longer be saved), and a regenerated draft would be overwritten on
+    // save. The buttons are hidden in edit mode; this covers API calls and other users.
+    const rejectIfEditing = async (req, id, verb) => {
+      const last = req.params?.[req.params.length - 1];
+      const openDraft =
+        (typeof last === 'object' && last.IsActiveEntity === false) ||
+        (await SELECT.one.from(SourcingProjects.drafts).columns('ID').where({ ID: id }));
+      if (openDraft) {
+        req.reject(
+          409,
+          `This sourcing project has unsaved changes. Save or discard them before you ${verb}.`,
+        );
+        return true;
+      }
+      return false;
+    };
+
     this.on('generateDraft', async (req) => {
       const id = boundKey(req);
       const project = await SELECT.one.from(SourcingProjects).where({ ID: id });
@@ -102,6 +142,7 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
       if (project.status !== 'DRAFT') {
         return req.reject(409, `Only DRAFT projects can be drafted (current: ${project.status})`);
       }
+      if (await rejectIfEditing(req, id, 'generate an AI draft')) return;
 
       const requirements = await SELECT.from(Requirements).where({ project_ID: id });
       if (!requirements.length) {
@@ -233,6 +274,7 @@ module.exports = class SourcingProjectService extends cds.ApplicationService {
       if (project.status !== 'DRAFT') {
         return req.reject(409, `Only DRAFT projects can be approved (current: ${project.status})`);
       }
+      if (await rejectIfEditing(req, id, 'approve')) return;
 
       // A project with no requirements has nothing to source.
       const count = await SELECT.one

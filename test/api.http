@@ -736,7 +736,10 @@ Content-Type: application/json
 # lost). Every flow creates its own project: a successful submit is terminal, so
 # the seeded APPROVED project must stay untouched for the freeze guards below.
 
-### S/4 flow: create a DRAFT project
+### S/4 flow: create a project with two items — a root POST creates a NEW DRAFT
+# SourcingProjects is draft-enabled: POST on the root opens a draft (IsActiveEntity
+# false) with its items deep-inserted. Items can't be POSTed on their own — draft
+# children are only writable through their root (CAP answers 422).
 # @name s4Proj
 POST {{host}}/api/sourcing/SourcingProjects
 {{manager}}
@@ -746,85 +749,115 @@ Content-Type: application/json
   "title": "api.http S/4 submission",
   "budgetCurrency": "PLN",
   "timelineEnd": "2027-03-31",
-  "materialGroup_code": "MG-OFF-001"
+  "materialGroup_code": "MG-OFF-001",
+  "requirements": [
+    {
+      "description": "Ergonomic office chair",
+      "quantity": 4,
+      "unit": "EA",
+      "materialGroup_code": "MG-OFF-001"
+    },
+    {
+      "description": "Printer paper",
+      "quantity": 10,
+      "unit": "BOX",
+      "unitPrice": 25,
+      "materialGroup_code": "MG-OFF-002"
+    }
+  ]
 }
 
-### S/4 flow: add a requirement WITHOUT a unit price
-# @name s4Req
-POST {{host}}/api/sourcing/Requirements
-{{manager}}
-Content-Type: application/json
-
-{
-  "project_ID": "{{s4Proj.response.body.ID}}",
-  "description": "Ergonomic office chair",
-  "quantity": 4,
-  "unit": "EA",
-  "materialGroup_code": "MG-OFF-001"
-}
-
-### S/4 flow: add a requirement in a unit S/4HANA has no mapping for
-# @name s4ReqBox
-POST {{host}}/api/sourcing/Requirements
-{{manager}}
-Content-Type: application/json
-
-{
-  "project_ID": "{{s4Proj.response.body.ID}}",
-  "description": "Printer paper",
-  "quantity": 10,
-  "unit": "BOX",
-  "unitPrice": 25,
-  "materialGroup_code": "MG-OFF-002"
-}
-
-### Guard: approve with a missing price and an unmapped unit -> expect 400
-# Approval freezes the project, so it runs the same readiness check as the
-# submit: the message names both items and what is wrong with each.
-POST {{host}}/api/sourcing/SourcingProjects({{s4Proj.response.body.ID}})/SourcingProjectService.approve
+### S/4 flow: Save the new draft (draftActivate) — the project now exists
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4Proj.response.body.ID}},IsActiveEntity=false)/SourcingProjectService.draftActivate
 {{manager}}
 Content-Type: application/json
 
 {}
 
-### S/4 flow: fix the price + delivery date while still DRAFT
-PATCH {{host}}/api/sourcing/Requirements({{s4Req.response.body.ID}})
+### Guard: approve with a missing price and an unmapped unit -> expect 400
+# Approval freezes the project, so it runs the same readiness check as the
+# submit: the message names both items and what is wrong with each.
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4Proj.response.body.ID}},IsActiveEntity=true)/SourcingProjectService.approve
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### S/4 flow: Edit — opens an edit draft of the saved project (the Object Page's Edit button)
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4Proj.response.body.ID}},IsActiveEntity=true)/SourcingProjectService.draftEdit
+{{manager}}
+Content-Type: application/json
+
+{ "PreserveChanges": true }
+
+### Guard: approve while an edit is open -> expect 409
+# Approving would sign off data that is about to change, and the edit could then
+# no longer be saved. The button is hidden in edit mode; this covers API callers.
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4Proj.response.body.ID}},IsActiveEntity=true)/SourcingProjectService.approve
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### S/4 flow: the items of the edit draft (ordered: chair, paper)
+# @name s4Items
+GET {{host}}/api/sourcing/SourcingProjects(ID={{s4Proj.response.body.ID}},IsActiveEntity=false)/requirements?$select=ID,description,unit&$orderby=description
+{{manager}}
+
+### S/4 flow: enter the price + delivery date in the edit draft
+PATCH {{host}}/api/sourcing/Requirements(ID={{s4Items.response.body.$.value[0].ID}},IsActiveEntity=false)
 {{manager}}
 Content-Type: application/json
 
 { "unitPrice": 1450, "deliveryDate": "2027-02-15" }
 
-### S/4 flow: drop the unmappable item
-DELETE {{host}}/api/sourcing/Requirements({{s4ReqBox.response.body.ID}})
+### S/4 flow: drop the unmappable item from the edit draft
+DELETE {{host}}/api/sourcing/Requirements(ID={{s4Items.response.body.$.value[1].ID}},IsActiveEntity=false)
 {{manager}}
 
-### S/4 flow: override the cost center for this project
-PATCH {{host}}/api/sourcing/SourcingProjects({{s4Proj.response.body.ID}})
+### S/4 flow: override the cost center in the edit draft
+PATCH {{host}}/api/sourcing/SourcingProjects(ID={{s4Proj.response.body.ID}},IsActiveEntity=false)
 {{manager}}
 Content-Type: application/json
 
 { "costCenter": "26101101" }
 
-### S/4 flow: approve — now ready
-POST {{host}}/api/sourcing/SourcingProjects({{s4Proj.response.body.ID}})/SourcingProjectService.approve
+### S/4 flow: Save the edit (draftActivate) — writes an EDIT audit entry
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4Proj.response.body.ID}},IsActiveEntity=false)/SourcingProjectService.draftActivate
 {{manager}}
 Content-Type: application/json
 
 {}
 
+### S/4 flow: approve — now ready
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4Proj.response.body.ID}},IsActiveEntity=true)/SourcingProjectService.approve
+{{manager}}
+Content-Type: application/json
+
+{}
+
+### Guard: Edit an APPROVED project -> expect 409
+# The approval freeze: Edit is hidden in the UI once the project leaves DRAFT,
+# and refused here before any change could be typed.
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4Proj.response.body.ID}},IsActiveEntity=true)/SourcingProjectService.draftEdit
+{{manager}}
+Content-Type: application/json
+
+{ "PreserveChanges": true }
+
 ### S/4 flow: submitToS4 creates the Purchase Requisition -> status SUBMITTED + PR number
-POST {{host}}/api/sourcing/SourcingProjects({{s4Proj.response.body.ID}})/SourcingProjectService.submitToS4
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4Proj.response.body.ID}},IsActiveEntity=true)/SourcingProjectService.submitToS4
 {{manager}}
 Content-Type: application/json
 
 {}
 
 ### S/4 flow: the project carries the PR number; the log has one SUCCESS entry
-GET {{host}}/api/sourcing/SourcingProjects({{s4Proj.response.body.ID}})?$select=status,s4RequisitionNumber&$expand=requisitionLog($select=status,s4RequisitionNumber,errorMsg)
+GET {{host}}/api/sourcing/SourcingProjects(ID={{s4Proj.response.body.ID}},IsActiveEntity=true)?$select=status,s4RequisitionNumber&$expand=requisitionLog($select=status,s4RequisitionNumber,errorMsg)
 {{manager}}
 
 ### Guard: submit the same project again — SUBMITTED is terminal -> expect 409
-POST {{host}}/api/sourcing/SourcingProjects({{s4Proj.response.body.ID}})/SourcingProjectService.submitToS4
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4Proj.response.body.ID}},IsActiveEntity=true)/SourcingProjectService.submitToS4
 {{manager}}
 Content-Type: application/json
 
@@ -837,91 +870,103 @@ Content-Type: application/json
 
 { "project_ID": "{{s4Proj.response.body.ID}}", "status": "SUCCESS" }
 
-### S/4 rejection: create a project whose item S/4HANA will refuse
+### S/4 rejection: create a project whose item S/4HANA will refuse (mock trigger "[s4-reject]")
 # @name s4ProjReject
 POST {{host}}/api/sourcing/SourcingProjects
 {{manager}}
 Content-Type: application/json
 
-{ "title": "api.http S/4 rejection", "budgetCurrency": "PLN", "timelineEnd": "2027-03-31" }
+{
+  "title": "api.http S/4 rejection",
+  "budgetCurrency": "PLN",
+  "timelineEnd": "2027-03-31",
+  "requirements": [
+    {
+      "description": "Standing desk [s4-reject]",
+      "quantity": 2,
+      "unit": "PC",
+      "unitPrice": 2300,
+      "materialGroup_code": "MG-OFF-001"
+    }
+  ]
+}
 
-### S/4 rejection: add the item (mock trigger "[s4-reject]")
-POST {{host}}/api/sourcing/Requirements
+### S/4 rejection: Save the new draft
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4ProjReject.response.body.ID}},IsActiveEntity=false)/SourcingProjectService.draftActivate
 {{manager}}
 Content-Type: application/json
 
-{
-  "project_ID": "{{s4ProjReject.response.body.ID}}",
-  "description": "Standing desk [s4-reject]",
-  "quantity": 2,
-  "unit": "PC",
-  "unitPrice": 2300,
-  "materialGroup_code": "MG-OFF-001"
-}
+{}
 
 ### S/4 rejection: approve
-POST {{host}}/api/sourcing/SourcingProjects({{s4ProjReject.response.body.ID}})/SourcingProjectService.approve
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4ProjReject.response.body.ID}},IsActiveEntity=true)/SourcingProjectService.approve
 {{manager}}
 Content-Type: application/json
 
 {}
 
 ### S/4 rejection: submit — S/4HANA's own message is passed through -> expect 400
-POST {{host}}/api/sourcing/SourcingProjects({{s4ProjReject.response.body.ID}})/SourcingProjectService.submitToS4
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4ProjReject.response.body.ID}},IsActiveEntity=true)/SourcingProjectService.submitToS4
 {{manager}}
 Content-Type: application/json
 
 {}
 
 ### S/4 rejection: project is back to APPROVED (retry possible), log entry FAILED
-GET {{host}}/api/sourcing/SourcingProjects({{s4ProjReject.response.body.ID}})?$select=status,s4RequisitionNumber&$expand=requisitionLog($select=status,errorMsg)
+GET {{host}}/api/sourcing/SourcingProjects(ID={{s4ProjReject.response.body.ID}},IsActiveEntity=true)?$select=status,s4RequisitionNumber&$expand=requisitionLog($select=status,errorMsg)
 {{manager}}
 
-### Unknown outcome: create a project whose S/4HANA response gets lost
+### Unknown outcome: create a project whose S/4HANA response gets lost (mock trigger "[s4-timeout]")
 # @name s4ProjTimeout
 POST {{host}}/api/sourcing/SourcingProjects
 {{manager}}
 Content-Type: application/json
 
-{ "title": "api.http S/4 timeout", "budgetCurrency": "PLN", "timelineEnd": "2027-03-31" }
+{
+  "title": "api.http S/4 timeout",
+  "budgetCurrency": "PLN",
+  "timelineEnd": "2027-03-31",
+  "requirements": [
+    {
+      "description": "Monitor arm [s4-timeout]",
+      "quantity": 3,
+      "unit": "PC",
+      "unitPrice": 320,
+      "materialGroup_code": "MG-IT-002"
+    }
+  ]
+}
 
-### Unknown outcome: add the item (mock trigger "[s4-timeout]")
-POST {{host}}/api/sourcing/Requirements
+### Unknown outcome: Save the new draft
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4ProjTimeout.response.body.ID}},IsActiveEntity=false)/SourcingProjectService.draftActivate
 {{manager}}
 Content-Type: application/json
 
-{
-  "project_ID": "{{s4ProjTimeout.response.body.ID}}",
-  "description": "Monitor arm [s4-timeout]",
-  "quantity": 3,
-  "unit": "PC",
-  "unitPrice": 320,
-  "materialGroup_code": "MG-IT-002"
-}
+{}
 
 ### Unknown outcome: approve
-POST {{host}}/api/sourcing/SourcingProjects({{s4ProjTimeout.response.body.ID}})/SourcingProjectService.approve
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4ProjTimeout.response.body.ID}},IsActiveEntity=true)/SourcingProjectService.approve
 {{manager}}
 Content-Type: application/json
 
 {}
 
 ### Unknown outcome: submit — S/4HANA created the PR but no answer arrived -> expect 504
-POST {{host}}/api/sourcing/SourcingProjects({{s4ProjTimeout.response.body.ID}})/SourcingProjectService.submitToS4
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4ProjTimeout.response.body.ID}},IsActiveEntity=true)/SourcingProjectService.submitToS4
 {{manager}}
 Content-Type: application/json
 
 {}
 
 ### Unknown outcome: resubmit reconciles — adopts the existing PR instead of a duplicate
-POST {{host}}/api/sourcing/SourcingProjects({{s4ProjTimeout.response.body.ID}})/SourcingProjectService.submitToS4
+POST {{host}}/api/sourcing/SourcingProjects(ID={{s4ProjTimeout.response.body.ID}},IsActiveEntity=true)/SourcingProjectService.submitToS4
 {{manager}}
 Content-Type: application/json
 
 {}
 
 ### Unknown outcome: SUBMITTED with the recovered number; the UNKNOWN log entry became SUCCESS
-GET {{host}}/api/sourcing/SourcingProjects({{s4ProjTimeout.response.body.ID}})?$select=status,s4RequisitionNumber&$expand=requisitionLog($select=status,s4RequisitionNumber,responseReceived)
+GET {{host}}/api/sourcing/SourcingProjects(ID={{s4ProjTimeout.response.body.ID}},IsActiveEntity=true)?$select=status,s4RequisitionNumber&$expand=requisitionLog($select=status,s4RequisitionNumber,responseReceived)
 {{manager}}
 
 # --- Authorization gates (Phase 1.1) -----------------------------------------
@@ -974,7 +1019,10 @@ Content-Type: application/json
 
 { "title": "tamper attempt" }
 
-### Guard: PATCH a Risk belonging to an APPROVED project -> expect 409
+### Guard: PATCH a Risk belonging to an APPROVED project -> expect 422
+# Risks are draft children: writable only through an edit of their project (422
+# "can only be modified via its root entity"), and Edit of an APPROVED project is
+# refused (409, S/4 section). Either way the approved data cannot change.
 PATCH {{host}}/api/sourcing/Risks({{riskApproved}})
 {{manager}}
 Content-Type: application/json
@@ -985,7 +1033,7 @@ Content-Type: application/json
 DELETE {{host}}/api/sourcing/Risks({{riskApproved}})
 {{manager}}
 
-### Guard: CREATE a Risk under an APPROVED project -> expect 409
+### Guard: CREATE a Risk under an APPROVED project -> expect 422
 POST {{host}}/api/sourcing/Risks
 {{manager}}
 Content-Type: application/json
