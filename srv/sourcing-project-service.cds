@@ -15,11 +15,15 @@ service SourcingProjectService @(path: '/api/sourcing', requires: 'authenticated
             // save. An association keeps it out of the draft; it stays readable.
             requisitionLog : Association to many PurchaseReqLogs
                                  on requisitionLog.project = $self,
-            case status
-                when 'DRAFT'     then 2 // yellow: work in progress
-                when 'APPROVED'   then 3 // green: signed off
-                when 'SUBMITTING' then 2 // yellow: S/4HANA call in flight
-                when 'SUBMITTED'  then 3 // green: sent to S/4HANA
+            // Searched CASE, not `case status when 'DRAFT'`: on a draft-enabled entity CAP
+            // re-renders this for the _drafts table, and its HANA renderer turns a simple
+            // CASE into `when ? = true` — a HANA syntax error that made the whole list
+            // fail with 500 on BTP (SQLite accepts it, so local tests passed).
+            case
+                when status = 'DRAFT'      then 2 // yellow: work in progress
+                when status = 'APPROVED'   then 3 // green: signed off
+                when status = 'SUBMITTING' then 2 // yellow: S/4HANA call in flight
+                when status = 'SUBMITTED'  then 3 // green: sent to S/4HANA
                 else 0
             end as statusCriticality : Integer
         }
@@ -75,11 +79,12 @@ service SourcingProjectService @(path: '/api/sourcing', requires: 'authenticated
     entity Risks                      as
         projection on db.Risk {
             *,
-            case severity
-                when 'Critical' then 1 // red
-                when 'High'     then 1 // red
-                when 'Medium'   then 2 // yellow
-                when 'Low'      then 3 // green
+            // Searched CASE — Risks is a draft child; see statusCriticality above.
+            case
+                when severity = 'Critical' then 1 // red
+                when severity = 'High'     then 1 // red
+                when severity = 'Medium'   then 2 // yellow
+                when severity = 'Low'      then 3 // green
                 else 0
             end as severityCriticality : Integer
         };
