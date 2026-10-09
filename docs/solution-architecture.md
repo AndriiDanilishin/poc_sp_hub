@@ -2,7 +2,7 @@
 
 Design draft for the target PoC: an AI-assisted intake and enrichment layer that turns scattered procurement requirements (email, PDF, images, Excel, partner REST feeds) into a human-reviewed Sourcing Project and, on approval, a Purchase Requisition in SAP S/4HANA Cloud. AI proposes; a human (Procurement Requester, then Procurement Manager) always decides.
 
-> **Status**: design draft, not yet implemented. The current repo (see [`CLAUDE.md`](../CLAUDE.md)) is a generic document-upload/RAG-chat scaffold — a technical template for ingestion and vector search, not this domain. This document is the target architecture that `srv/`, `db/schema.cds`, and `app/` should grow into, phase by phase (§29, §30).
+
 
 ## 1. Executive summary
 
