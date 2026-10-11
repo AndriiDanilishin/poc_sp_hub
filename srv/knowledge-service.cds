@@ -23,7 +23,14 @@ service KnowledgeService @(path: '/api/knowledge', requires: 'authenticated-user
             // Filled in JS after READ, not by a SQL CASE: on a draft-enabled entity
             // CAP re-renders a CASE for the _drafts table with bound literals, which
             // HANA rejects (see SourcingProjects in sourcing-project-service.cds).
-            virtual indexCriticality : Integer
+            virtual indexCriticality : Integer,
+            // Description of `category` from the KnowledgeCategories code list, so
+            // lists show "Material group catalog" rather than the code.
+            virtual categoryText     : String(100),
+            // true unless the user is a KnowledgeCurator. Same fact as
+            // CurrentUser.readOnly, but relative: FE ignores an absolute singleton
+            // path in UI.Hidden on Object Page header actions (verified).
+            virtual hideCuratorActions : Boolean
         }
         // The embedding vector is managed internally, never exposed over OData.
         excluding {
@@ -51,6 +58,20 @@ service KnowledgeService @(path: '/api/knowledge', requires: 'authenticated-user
     entity KnowledgeCategories {
         key code        : String(30);
             description : String(100);
+    }
+
+    // What the current user may do here, for the UI: Fiori Elements does not read
+    // @restrict, so without this a requester sees Create/Edit/Delete/Upload and only
+    // learns from a 403. Annotations reference it by absolute singleton path. The
+    // server-side @restrict/@requires stay the actual control.
+    @odata.singleton
+    @cds.persistence.skip
+    @readonly
+    entity CurrentUser {
+            // true unless the user is a KnowledgeCurator — named for the
+            // UI.*Hidden annotations, which take a plain path (no negation needed).
+            readOnly  : Boolean;
+            isCurator : Boolean;
     }
 
     // A retrieval hit: what RAG would ground on for a query.
@@ -125,3 +146,22 @@ annotate KnowledgeService.KnowledgeDocuments with {
     indexError    @readonly;
     fileName      @readonly;
 };
+
+// The virtual elements are filled in JS after READ, so the database cannot sort or
+// filter on them: $orderby is silently ignored (rows come back unsorted, no error)
+// and $filter fails with a 500 ("Virtual elements are not allowed in expressions").
+// Declaring them non-sortable/non-filterable makes FE stop offering either — table
+// settings, column headers and Adapt Filters — instead of letting a curator sort a
+// list that then quietly does not sort.
+annotate KnowledgeService.KnowledgeDocuments with @(
+    Capabilities.SortRestrictions  : {NonSortableProperties: [
+        indexCriticality,
+        categoryText,
+        hideCuratorActions
+    ]},
+    Capabilities.FilterRestrictions: {NonFilterableProperties: [
+        indexCriticality,
+        categoryText,
+        hideCuratorActions
+    ]}
+);

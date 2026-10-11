@@ -21,17 +21,15 @@
                 <f:formContainers>
                     <f:FormContainer id="kbUploadFormContainer">
                         <f:formElements>
-                            <!-- fileType must stay in sync with ACCEPTED_EXTENSIONS in
-                                 UploadDialog.js and PARSER_BY_EXTENSION in
-                                 srv/knowledge-service.js. -->
+                            <!-- fileType and maximumFileSize are set in onOpenUpload from
+                                 ACCEPTED_EXTENSIONS / MAX_UPLOAD_MB in UploadDialog.js
+                                 (which mirror srv/knowledge-service.js). -->
                             <f:FormElement id="kbUploadFileElement" label="{i18n>uploadFileLabel}">
                                 <f:fields>
                                     <u:FileUploader
                                         id="kbUploadFileUploader"
                                         width="100%"
                                         required="true"
-                                        maximumFileSize="10"
-                                        fileType="pdf,csv,tsv,eml,json,txt,md"
                                         change="onFileSelected"
                                         typeMissmatch="onFileTypeMissmatch"
                                         fileSizeExceed="onFileSizeExceed" />

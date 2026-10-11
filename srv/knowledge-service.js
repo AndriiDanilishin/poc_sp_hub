@@ -63,7 +63,7 @@ const extensionOf = (fileName) => {
 
 module.exports = class KnowledgeService extends cds.ApplicationService {
   async init() {
-    const { KnowledgeDocuments, KnowledgeCategories } = this.entities;
+    const { KnowledgeDocuments, KnowledgeCategories, CurrentUser } = this.entities;
     const { KnowledgeDocument, AuditLog } = cds.entities('sourcing');
     const writeAudit = makeAuditWriter(AuditLog);
 
@@ -101,25 +101,75 @@ module.exports = class KnowledgeService extends cds.ApplicationService {
 
     this.on('READ', KnowledgeCategories, () => CATEGORIES.map((c) => ({ ...c })));
 
-    // ---- Index status criticality (virtual, HANA-safe) ----------------------
+    // ---- Current user's permissions (UI hint only; @restrict is the control) --
 
-    const selectIndexStatus = (req) => {
+    this.on('READ', CurrentUser, (req) => {
+      const isCurator = req.user.is('KnowledgeCurator');
+      return { readOnly: !isCurator, isCurator };
+    });
+
+    // ---- Virtual display fields (filled in JS, HANA-safe) --------------------
+
+    // virtual element → the stored column it is computed from
+    const VIRTUAL_SOURCES = { indexCriticality: 'indexStatus', categoryText: 'category' };
+    const CATEGORY_TEXT = Object.fromEntries(CATEGORIES.map((c) => [c.code, c.description]));
+
+    const selectVirtualSources = (req) => {
       const columns = req.query?.SELECT?.columns;
-      if (!columns || columns.some((c) => c === '*' || c.ref?.[0] === 'indexStatus')) return;
-      if (columns.some((c) => c.ref?.[0] === 'indexCriticality')) {
-        columns.push({ ref: ['indexStatus'] });
+      if (!columns || columns.includes('*')) return;
+      for (const [virtualName, source] of Object.entries(VIRTUAL_SOURCES)) {
+        const wantsVirtual = columns.some((c) => c.ref?.[0] === virtualName);
+        const hasSource = columns.some((c) => c.ref?.[0] === source);
+        if (wantsVirtual && !hasSource) columns.push({ ref: [source] });
       }
     };
-    const fillCriticality = (rows) => {
+    const fillVirtuals = (rows, req) => {
+      const columns = req.query?.SELECT?.columns;
+      const wantsHide =
+        !columns || columns.some((c) => c === '*' || c.ref?.[0] === 'hideCuratorActions');
+      const hide = !req.user.is('KnowledgeCurator');
       for (const row of [].concat(rows ?? [])) {
-        if (row && row.indexStatus !== undefined) {
+        if (!row) continue;
+        if (wantsHide) row.hideCuratorActions = hide;
+        if (row.indexStatus !== undefined) {
           row.indexCriticality = INDEX_CRITICALITY[row.indexStatus] ?? 0;
+        }
+        if (row.category !== undefined) {
+          row.categoryText = CATEGORY_TEXT[row.category] ?? row.category;
         }
       }
     };
+    // The virtuals exist only after READ, so the database cannot order or filter by
+    // them: $orderby on one was silently ignored (rows unsorted, no error) and
+    // $filter failed with a 500. The UI no longer offers either (Capabilities
+    // annotations in knowledge-service.cds), but CAP does not enforce those, so API
+    // callers get an explicit 400 here instead of a wrong answer or a crash.
+    const VIRTUALS = new Set([...Object.keys(VIRTUAL_SOURCES), 'hideCuratorActions']);
+    const findVirtualRef = (node) => {
+      if (Array.isArray(node)) {
+        for (const each of node) {
+          const hit = findVirtualRef(each);
+          if (hit) return hit;
+        }
+        return null;
+      }
+      if (!node || typeof node !== 'object') return null;
+      if (node.ref?.length === 1 && VIRTUALS.has(node.ref[0])) return node.ref[0];
+      return findVirtualRef(node.xpr) || findVirtualRef(node.args);
+    };
+    const rejectVirtualQueries = (req) => {
+      const select = req.query?.SELECT;
+      if (!select) return;
+      const sorted = findVirtualRef(select.orderBy);
+      if (sorted) return req.reject(400, `Sorting by "${sorted}" is not supported`);
+      const filtered = findVirtualRef(select.where) || findVirtualRef(select.having);
+      if (filtered) return req.reject(400, `Filtering by "${filtered}" is not supported`);
+    };
+
     for (const entity of [KnowledgeDocuments, KnowledgeDocuments.drafts]) {
-      this.before('READ', entity, selectIndexStatus);
-      this.after('READ', entity, fillCriticality);
+      this.before('READ', entity, rejectVirtualQueries);
+      this.before('READ', entity, selectVirtualSources);
+      this.after('READ', entity, fillVirtuals);
     }
 
     // ---- Writes: validation, stream uploads, re-embedding --------------------

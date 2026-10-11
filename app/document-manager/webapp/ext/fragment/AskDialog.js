@@ -2,27 +2,14 @@ sap.ui.define(
   [
     "sap/ui/model/json/JSONModel",
     "sap/m/MessageBox",
-    "sap/ui/core/routing/HashChanger",
-    "poc/sp/hub/documentmanager/ext/lib/ActionRunner"
+    "sap/base/Log",
+    "poc/sp/hub/documentmanager/ext/lib/ActionRunner",
+    "poc/sp/hub/documentmanager/ext/lib/Navigation"
   ],
-  function (JSONModel, MessageBox, HashChanger, ActionRunner) {
+  function (JSONModel, MessageBox, Log, ActionRunner, Navigation) {
     "use strict";
 
     var FRAGMENT_ID = "kbAskDialogFrag";
-
-    /**
-     * Open a knowledge document's Object Page. Shared with the Object Page's
-     * "Similar Documents" section. FE's routing API takes the route name and
-     * the key segment; the hash is the fallback if routing is unavailable.
-     */
-    function openDocument(oExtensionAPI, sId) {
-      var sKey = "ID=" + sId + ",IsActiveEntity=true";
-      if (oExtensionAPI.routing && oExtensionAPI.routing.navigateToRoute) {
-        oExtensionAPI.routing.navigateToRoute("KnowledgeDocumentsObjectPage", { key: sKey });
-      } else {
-        HashChanger.getInstance().setHash("KnowledgeDocuments(" + sKey + ")");
-      }
-    }
 
     function createController(oExtensionAPI) {
       var oDialog = null;
@@ -116,7 +103,7 @@ sap.ui.define(
         onOpenHit: function (oEvent) {
           var sId = oEvent.getSource().getBindingContext("ask").getProperty("ID");
           oDialog.close();
-          openDocument(oExtensionAPI, sId);
+          Navigation.openDocument(oExtensionAPI, sId);
         },
 
         onClose: function () {
@@ -134,8 +121,6 @@ sap.ui.define(
     }
 
     return {
-      openDocument: openDocument,
-
       /** List Report toolbar action (`this` is the ListReport ExtensionAPI). */
       onOpenAsk: function () {
         var oExtensionAPI = this;
@@ -152,10 +137,14 @@ sap.ui.define(
             oDialog.setModel(oController.model, "ask");
             oDialog.attachAfterClose(oController.onDialogClosed);
             oDialog.open();
-            return oController.loadCategories();
+            return oController.loadCategories().catch(function () {
+              // The category list is a convenience; the dialog works without it.
+            });
           })
-          .catch(function () {
-            // The category list is a convenience; the dialog works without it.
+          .catch(function (oError) {
+            // The dialog itself could not be created — say so instead of doing nothing.
+            Log.error("Ask dialog could not be opened", oError);
+            MessageBox.error(oExtensionAPI.getModel("i18n").getResourceBundle().getText("askOpenFailed"));
           });
       }
     };

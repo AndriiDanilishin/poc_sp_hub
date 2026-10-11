@@ -1,11 +1,15 @@
 <core:FragmentDefinition xmlns:core="sap.ui.core" xmlns="sap.m">
 	<!-- Object Page section: the documents RAG ranks closest to this one. Helps a
 	     curator spot duplicates and overlap before they skew retrieval. Runs on
-	     demand (one embedding call per press), not on every page load. -->
+	     demand (one embedding call per press), not on every page load.
+	     Results live in a "similar" JSONModel on the box and are tied to the
+	     document they were computed for: FE reuses this view for every document,
+	     so modelContextChange clears them when another document is shown. -->
 	<VBox
 		id="similarSectionBox"
 		class="sapUiSmallMargin"
-		core:require="{ handler: 'poc/sp/hub/documentmanager/ext/fragment/SimilarSection'}">
+		core:require="{ handler: 'poc/sp/hub/documentmanager/ext/fragment/SimilarSection', Similarity: 'poc/sp/hub/documentmanager/ext/lib/Similarity' }"
+		modelContextChange="handler.onContextChange">
 		<MessageStrip
 			id="similarSectionStrip"
 			text="{i18n>similarSectionHint}"
@@ -19,8 +23,19 @@
 			press="handler.onFindSimilar" />
 		<List
 			id="similarSectionList"
-			visible="false"
+			visible="{= ${similar>/searched} === true }"
 			noDataText="{i18n>similarNoHits}"
-			class="sapUiSmallMarginTop" />
+			items="{path: 'similar>/hits', templateShareable: false}"
+			class="sapUiSmallMarginTop">
+			<StandardListItem
+				id="similarSectionItem"
+				title="{similar>title}"
+				description="{parts: ['similar>category', 'similar>sourceRef', 'similar>excerpt'], formatter: 'Similarity.hitDescription'}"
+				info="{path: 'similar>score', formatter: 'Similarity.percent'}"
+				infoState="{path: 'similar>score', formatter: 'Similarity.duplicateState'}"
+				wrapping="true"
+				type="Navigation"
+				press="handler.onOpenHit" />
+		</List>
 	</VBox>
 </core:FragmentDefinition>

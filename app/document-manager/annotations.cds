@@ -1,12 +1,28 @@
 using KnowledgeService as service from '../../srv/knowledge-service';
 
 // Knowledge Base app: the curator UI for the RAG corpus (see document-manager.md).
-// Labels come from the @title annotations at the bottom rather than per-DataField
-// `Label:` entries, same convention as intake-hub's annotations.cds.
+// Labels are {i18n>…} keys resolved by CAP from ./_i18n/i18n.properties (the webapp
+// bundle is not visible to CDS). Field labels come from the @title annotations at
+// the bottom rather than per-DataField `Label:` entries, same as intake-hub.
+
+// Curator-only UI is hidden for non-curators. FE does not read @restrict; the
+// server still refuses with 403. Two sources of the same fact, by where FE
+// evaluates the annotation (both verified on UI5 1.150):
+//  - entity-set level (Create, Delete, table actions): the CurrentUser
+//    singleton, by absolute path — there is no row to evaluate a relative path on.
+//    DeleteHidden by that path also hides the Object Page's Delete for
+//    non-curators, without path errors (verified headlessly as requester and
+//    curator) — unlike UpdateHidden below, so Delete needs no per-row variant.
+//  - Object Page (Edit, header actions): the per-row virtual hideCuratorActions.
+//    A singleton path in UpdateHidden logs "Failed to read path …" on every
+//    Object Page load, and on a header DataFieldForAction it is ignored.
 annotate service.KnowledgeDocuments with @(
+    UI.CreateHidden              : {$edmJson: {$Path: '/KnowledgeService.EntityContainer/CurrentUser/readOnly'}},
+    UI.DeleteHidden              : {$edmJson: {$Path: '/KnowledgeService.EntityContainer/CurrentUser/readOnly'}},
+    UI.UpdateHidden              : hideCuratorActions,
     UI.HeaderInfo                : {
-        TypeName      : 'Knowledge Document',
-        TypeNamePlural: 'Knowledge Documents',
+        TypeName      : '{i18n>KnowledgeDocument}',
+        TypeNamePlural: '{i18n>KnowledgeDocuments}',
         Title         : {Value: title},
         Description   : {Value: category},
     },
@@ -18,6 +34,14 @@ annotate service.KnowledgeDocuments with @(
     // Importance drives which columns the ResponsiveTable keeps on narrow
     // screens: title, category and searchability are what a curator triages by.
     UI.LineItem                  : [
+        // Toolbar button for the selected rows (FE invokes the bound action once
+        // per selected document) — e.g. after filtering Search Index = FAILED.
+        {
+            $Type        : 'UI.DataFieldForAction',
+            Action       : 'KnowledgeService.reindexDocument',
+            Label        : '{i18n>ReindexSelected}',
+            ![@UI.Hidden]: {$edmJson: {$Path: '/KnowledgeService.EntityContainer/CurrentUser/readOnly'}},
+        },
         {
             $Type            : 'UI.DataField',
             Value            : title,
@@ -46,17 +70,23 @@ annotate service.KnowledgeDocuments with @(
             $Type: 'UI.DataField',
             Value: fileName,
         },
+        {
+            $Type: 'UI.DataField',
+            Value: modifiedAt,
+        },
     ],
     // Object Page header button. OperationAvailable on the action hides it while
     // an edit draft is open.
     UI.Identification            : [{
-        $Type : 'UI.DataFieldForAction',
-        Action: 'KnowledgeService.reindexDocument',
-        Label : 'Reindex',
+        $Type        : 'UI.DataFieldForAction',
+        Action       : 'KnowledgeService.reindexDocument',
+        Label        : '{i18n>Reindex}',
+        // Relative path: FE ignores the singleton path on header actions.
+        ![@UI.Hidden]: hideCuratorActions,
     }],
     UI.DataPoint #IndexStatus    : {
         Value      : indexStatus,
-        Title      : 'Search Index',
+        Title      : '{i18n>SearchIndex}',
         Criticality: indexCriticality,
     },
     UI.HeaderFacets              : [{
@@ -100,9 +130,11 @@ annotate service.KnowledgeDocuments with @(
                 $Type: 'UI.DataField',
                 Value: indexedAt,
             },
+            // Only meaningful after a failure; an empty "Index Error" is noise.
             {
-                $Type: 'UI.DataField',
-                Value: indexError,
+                $Type        : 'UI.DataField',
+                Value        : indexError,
+                ![@UI.Hidden]: (indexError is null),
             },
         ],
     },
@@ -123,39 +155,69 @@ annotate service.KnowledgeDocuments with @(
             },
         ],
     },
+    UI.FieldGroup #Admin         : {
+        $Type: 'UI.FieldGroupType',
+        Data : [
+            {
+                $Type: 'UI.DataField',
+                Value: createdAt,
+            },
+            {
+                $Type: 'UI.DataField',
+                Value: createdBy,
+            },
+            {
+                $Type: 'UI.DataField',
+                Value: modifiedAt,
+            },
+            {
+                $Type: 'UI.DataField',
+                Value: modifiedBy,
+            },
+        ],
+    },
     UI.Facets                    : [
         {
             $Type : 'UI.ReferenceFacet',
             ID    : 'GeneralFacet',
-            Label : 'General Information',
+            Label : '{i18n>GeneralInformation}',
             Target: '@UI.FieldGroup#General',
         },
         {
             $Type : 'UI.ReferenceFacet',
             ID    : 'ContentFacet',
-            Label : 'Content',
+            Label : '{i18n>Content}',
             Target: '@UI.FieldGroup#Content',
         },
         {
             $Type : 'UI.ReferenceFacet',
             ID    : 'IndexingFacet',
-            Label : 'Search Index',
+            Label : '{i18n>SearchIndex}',
             Target: '@UI.FieldGroup#Indexing',
         },
         {
             $Type        : 'UI.ReferenceFacet',
             ID           : 'SourceFileFacet',
-            Label        : 'Source File',
+            Label        : '{i18n>SourceFile}',
             Target       : '@UI.FieldGroup#SourceFile',
             // Only documents created from an uploaded file have one.
-            ![@UI.Hidden]: {$edmJson: {$Eq: [{$Path: 'fileName'}, null]}},
+            ![@UI.Hidden]: (fileName is null),
+        },
+        {
+            $Type : 'UI.ReferenceFacet',
+            ID    : 'AdminFacet',
+            Label : '{i18n>AdministrativeData}',
+            Target: '@UI.FieldGroup#Admin',
         },
     ],
 );
 
 annotate service.KnowledgeDocuments with {
-    title            @title: 'Title';
-    category         @title: 'Category'
+    title            @title: '{i18n>Title}';
+    // Shown as its description ("Material group catalog"), edited via the dropdown.
+    category         @title: '{i18n>Category}'
+                     @Common.Text: categoryText
+                     @Common.TextArrangement: #TextOnly
                      @Common.ValueListWithFixedValues
                      @Common.ValueList: {
                          CollectionPath: 'KnowledgeCategories',
@@ -171,20 +233,24 @@ annotate service.KnowledgeDocuments with {
                              },
                          ],
                      };
-    sourceRef        @title: 'Source Reference';
-    content          @title: 'Content'  @UI.MultiLineText;
-    indexStatus      @title: 'Search Index';
-    indexedAt        @title: 'Indexed At';
-    indexError       @title: 'Index Error';
-    fileName         @title: 'File Name';
-    contentBinary    @title: 'Original File';
-    mediaType        @title: 'Media Type';
+    categoryText     @title: '{i18n>Category}'  @UI.HiddenFilter;
+    sourceRef        @title: '{i18n>SourceReference}';
+    content          @title: '{i18n>Content}'  @UI.MultiLineText;
+    indexStatus      @title: '{i18n>SearchIndex}';
+    indexedAt        @title: '{i18n>IndexedAt}';
+    indexError       @title: '{i18n>IndexError}';
+    fileName         @title: '{i18n>FileName}';
+    contentBinary    @title: '{i18n>OriginalFile}';
+    mediaType        @title: '{i18n>MediaType}';
     indexCriticality @UI.Hidden;
-    createdAt        @title: 'Created At';
-    modifiedAt       @title: 'Changed At';
+    hideCuratorActions @UI.Hidden;
+    createdAt        @title: '{i18n>CreatedAt}';
+    createdBy        @title: '{i18n>CreatedBy}';
+    modifiedAt       @title: '{i18n>ChangedAt}';
+    modifiedBy       @title: '{i18n>ChangedBy}';
 }
 
 annotate service.KnowledgeCategories with {
-    code        @title: 'Category';
-    description @title: 'Description';
+    code        @title: '{i18n>Category}'  @Common.Text: description  @Common.TextArrangement: #TextOnly;
+    description @title: '{i18n>Description}';
 }

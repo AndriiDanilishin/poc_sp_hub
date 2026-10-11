@@ -1065,11 +1065,40 @@ Content-Type: application/json
 ###############################################################################
 
 ### List curated knowledge documents with their search-index status
-GET {{host}}/api/knowledge/KnowledgeDocuments?$select=ID,category,title,sourceRef,indexStatus,indexCriticality&$top=5
+# categoryText (category description) and hideCuratorActions (true unless the
+# caller is a KnowledgeCurator) are virtual, filled after READ for the UI.
+GET {{host}}/api/knowledge/KnowledgeDocuments?$select=ID,category,categoryText,title,sourceRef,indexStatus,indexCriticality,hideCuratorActions&$top=5
 {{requester}}
+
+### Current user's permissions, singleton (UI hint): requester -> readOnly true
+GET {{host}}/api/knowledge/CurrentUser
+{{requester}}
+
+### Current user's permissions, singleton: curator -> readOnly false, isCurator true
+GET {{host}}/api/knowledge/CurrentUser
+{{curator}}
+
+### Guard: the CurrentUser singleton is read-only -> expect 405
+PATCH {{host}}/api/knowledge/CurrentUser
+{{curator}}
+Content-Type: application/json
+
+{ "readOnly": false }
 
 ### Category value help (same list the server validates against)
 GET {{host}}/api/knowledge/KnowledgeCategories
+{{requester}}
+
+### Sort by the stored category code (works; the description is display-only)
+GET {{host}}/api/knowledge/KnowledgeDocuments?$select=title,category,categoryText&$orderby=category desc&$top=3
+{{requester}}
+
+### Guard: sorting by a virtual display field is refused, not silently ignored -> expect 400
+GET {{host}}/api/knowledge/KnowledgeDocuments?$select=title,categoryText&$orderby=categoryText&$top=3
+{{requester}}
+
+### Guard: filtering by a virtual display field is a clear 400, not a 500 -> expect 400
+GET {{host}}/api/knowledge/KnowledgeDocuments?$select=title&$filter=categoryText eq 'Procurement policy'
 {{requester}}
 
 ### List by category (function)

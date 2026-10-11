@@ -1,16 +1,16 @@
 sap.ui.define(
   [
     "sap/ui/core/Fragment",
-    "sap/m/MessageToast",
     "sap/m/MessageBox",
-    "poc/sp/hub/documentmanager/ext/lib/ActionRunner"
+    "poc/sp/hub/documentmanager/ext/lib/ActionRunner",
+    "poc/sp/hub/documentmanager/ext/lib/Navigation"
   ],
-  function (Fragment, MessageToast, MessageBox, ActionRunner) {
+  function (Fragment, MessageBox, ActionRunner, Navigation) {
     "use strict";
 
     var FRAGMENT_ID = "kbUploadDialogFrag";
 
-    // Must match MAX_UPLOAD_BYTES in srv/knowledge-service.js and the
+    // Must match MAX_UPLOAD_BYTES in srv/knowledge-service.js; also sets the
     // FileUploader's maximumFileSize. The client check is a UX affordance; the
     // server is the control.
     var MAX_UPLOAD_MB = 10;
@@ -226,10 +226,23 @@ sap.ui.define(
             { $select: "indexStatus,indexError", $$groupId: "$direct" }
           );
           return oBinding.requestObject().then(function (oDoc) {
-            if (oDoc && oDoc.indexStatus === "FAILED") {
-              MessageBox.warning(i18n("uploadIndexFailed", [oDoc.indexError || ""]));
+            // Either way the next step is usually on the new document's page —
+            // review the extracted text, or fix it after a failed index.
+            var sOpen = i18n("uploadOpenDocument");
+            var bFailed = oDoc && oDoc.indexStatus === "FAILED";
+            var mOptions = {
+              actions: [sOpen, MessageBox.Action.CLOSE],
+              emphasizedAction: sOpen,
+              onClose: function (sAction) {
+                if (sAction === sOpen) {
+                  Navigation.openDocument(oExtensionAPI, sId);
+                }
+              }
+            };
+            if (bFailed) {
+              MessageBox.warning(i18n("uploadIndexFailed", [oDoc.indexError || ""]), mOptions);
             } else {
-              MessageToast.show(i18n("uploadSuccess"));
+              MessageBox.success(i18n("uploadSuccess"), mOptions);
             }
           });
         },
@@ -316,6 +329,10 @@ sap.ui.define(
             var oDialog = Array.isArray(oControl) ? oControl[0] : oControl;
             oController.setDialog(oDialog);
             oDialog.attachAfterClose(oController.onDialogClosed);
+            oController
+              .byId("kbUploadFileUploader")
+              .setFileType(ACCEPTED_EXTENSIONS)
+              .setMaximumFileSize(MAX_UPLOAD_MB);
             oController
               .byId("kbUploadHint")
               .setText(

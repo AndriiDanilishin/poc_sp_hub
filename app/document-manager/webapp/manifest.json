@@ -70,6 +70,7 @@
         "sap.ui.core": {},
         "sap.fe.templates": {},
         "sap.f": {},
+        "sap.ui.layout": {},
         "sap.ui.unified": {}
       }
     },
@@ -152,7 +153,7 @@
                   "actions": {
                     "uploadFile": {
                       "press": "poc.sp.hub.documentmanager.ext.fragment.UploadDialog.onOpenUpload",
-                      "visible": true,
+                      "visible": "{= ${/CurrentUser/readOnly} === false }",
                       "enabled": true,
                       "text": "{i18n>uploadFileAction}"
                     },
@@ -164,7 +165,7 @@
                     },
                     "reindexMissing": {
                       "press": "poc.sp.hub.documentmanager.ext.fragment.KnowledgeActions.onReindexMissing",
-                      "visible": true,
+                      "visible": "{= ${/CurrentUser/readOnly} === false }",
                       "enabled": true,
                       "text": "{i18n>reindexMissingAction}"
                     }

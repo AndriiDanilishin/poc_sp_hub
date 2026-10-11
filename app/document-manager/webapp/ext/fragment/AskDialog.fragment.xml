@@ -7,6 +7,7 @@
          Stable ids throughout (flexEnabled). -->
     <Dialog
         id="kbAskDialog"
+        core:require="{ Similarity: 'poc/sp/hub/documentmanager/ext/lib/Similarity' }"
         title="{i18n>askDialogTitle}"
         contentWidth="44rem"
         contentHeight="36rem"
@@ -79,9 +80,9 @@
                     <StandardListItem
                         id="kbAskHitItem"
                         title="{ask>title}"
-                        description="{ask>category} · {ask>sourceRef} — {ask>excerpt}"
-                        info="{= (${ask>score} * 100).toFixed(1) + ' %' }"
-                        infoState="{= ${ask>score} >= 0.5 ? 'Success' : ${ask>score} >= 0.3 ? 'Warning' : 'None' }"
+                        description="{parts: ['ask>category', 'ask>sourceRef', 'ask>excerpt'], formatter: 'Similarity.hitDescription'}"
+                        info="{path: 'ask>score', formatter: 'Similarity.percent'}"
+                        infoState="{path: 'ask>score', formatter: 'Similarity.relevanceState'}"
                         wrapping="true"
                         type="Navigation"
                         press="onOpenHit" />
