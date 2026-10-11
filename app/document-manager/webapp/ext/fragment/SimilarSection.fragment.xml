@@ -1,0 +1,26 @@
+<core:FragmentDefinition xmlns:core="sap.ui.core" xmlns="sap.m">
+	<!-- Object Page section: the documents RAG ranks closest to this one. Helps a
+	     curator spot duplicates and overlap before they skew retrieval. Runs on
+	     demand (one embedding call per press), not on every page load. -->
+	<VBox
+		id="similarSectionBox"
+		class="sapUiSmallMargin"
+		core:require="{ handler: 'poc/sp/hub/documentmanager/ext/fragment/SimilarSection'}">
+		<MessageStrip
+			id="similarSectionStrip"
+			text="{i18n>similarSectionHint}"
+			type="Information"
+			showIcon="true"
+			class="sapUiSmallMarginBottom" />
+		<Button
+			id="similarSectionButton"
+			text="{i18n>similarFindButton}"
+			icon="sap-icon://search"
+			press="handler.onFindSimilar" />
+		<List
+			id="similarSectionList"
+			visible="false"
+			noDataText="{i18n>similarNoHits}"
+			class="sapUiSmallMarginTop" />
+	</VBox>
+</core:FragmentDefinition>

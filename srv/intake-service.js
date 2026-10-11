@@ -2,6 +2,7 @@ const cds = require('@sap/cds');
 const { parseDocument } = require('./ai/document-parsers');
 const { extractRequirements: aiExtractRequirements } = require('./ai/extraction');
 const { makeAuditWriter } = require('./lib/audit');
+const { readBinaryColumn } = require('./lib/binary');
 
 const ALLOWED_ORIGIN_TYPES = ['Email', 'Pdf', 'Image', 'Excel', 'RestApi', 'Text'];
 
@@ -35,37 +36,9 @@ module.exports = class IntakeService extends cds.ApplicationService {
     const writeAudit = makeAuditWriter(AuditLog);
 
     // Read a document's uploaded bytes as a Buffer, or null when none were
-    // uploaded. A LargeBinary column does not read back uniformly: CAP streams
-    // media content (Readable) on some drivers and hands back a Buffer — or a
-    // base64 string — on others, so normalise all three here rather than making
-    // every parser defensive.
-    const readBinaryContent = async (documentId) => {
-      // Read the column with plain SQL rather than through the entity.
-      //
-      // Reading contentBinary via SELECT.from(SourceDocuments) hands back a
-      // Readable that CAP has already put in a text encoding, and draining it
-      // corrupts binary input — a 1204-byte PDF came back as 901 bytes, because
-      // every byte sequence that is not valid UTF-8 collapses into U+FFFD.
-      // setEncoding(null) does not undo that, since the damage happens upstream.
-      // The raw driver read returns the bytes untouched on both sqlite and HANA.
-      const rows = await cds.run(
-        `SELECT contentBinary FROM sourcing_SourceDocument WHERE ID = ?`,
-        [documentId],
-      );
-      const value = rows?.[0]?.contentBinary ?? rows?.[0]?.CONTENTBINARY;
-      if (!value) return null;
-
-      // On sqlite, CAP stores an uploaded media stream base64-ENCODED inside the
-      // blob: the column of a 901-byte PDF holds 1204 bytes reading "JVBERi0x…"
-      // (base64 of "%PDF-1"), not the PDF itself. So the bytes must be decoded
-      // before any parser sees them, or pdf-parse fails with "Invalid PDF
-      // structure". Detected rather than assumed, since a driver that stores raw
-      // bytes (HANA) must pass through untouched.
-      const buffer = Buffer.isBuffer(value) ? value : Buffer.from(String(value), 'binary');
-      const isBase64 =
-        buffer.length % 4 === 0 && /^[A-Za-z0-9+/\r\n]+={0,2}$/.test(buffer.subarray(0, 64).toString('latin1'));
-      return isBase64 ? Buffer.from(buffer.toString('latin1'), 'base64') : buffer;
-    };
+    // uploaded (raw SQL + sqlite base64 decoding — see srv/lib/binary.js).
+    const readBinaryContent = (documentId) =>
+      readBinaryColumn('sourcing_SourceDocument', documentId);
 
     this.on('uploadDocument', async (req) => {
       const { workspaceId, originType, fileName, fileType, content, fileSize } = req.data;

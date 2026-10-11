@@ -1,0 +1,100 @@
+<core:FragmentDefinition
+    xmlns:core="sap.ui.core"
+    xmlns="sap.m"
+    xmlns:u="sap.ui.unified"
+    xmlns:f="sap.ui.layout.form">
+    <!-- Every control carries an explicit id: manifest.json sets flexEnabled:true,
+         which requires stable IDs. Form + ColumnLayout (not SimpleForm), and no
+         layout containers inside a FormElement — ColumnLayout rejects them at
+         render time ("is not a valid Form content!") and the dialog never opens. -->
+    <Dialog id="kbUploadDialog" title="{i18n>uploadDialogTitle}" contentWidth="34rem">
+        <content>
+            <f:Form id="kbUploadForm" editable="true">
+                <f:layout>
+                    <f:ColumnLayout
+                        id="kbUploadFormLayout"
+                        columnsM="1"
+                        columnsL="1"
+                        columnsXL="1"
+                        labelCellsLarge="4" />
+                </f:layout>
+                <f:formContainers>
+                    <f:FormContainer id="kbUploadFormContainer">
+                        <f:formElements>
+                            <!-- fileType must stay in sync with ACCEPTED_EXTENSIONS in
+                                 UploadDialog.js and PARSER_BY_EXTENSION in
+                                 srv/knowledge-service.js. -->
+                            <f:FormElement id="kbUploadFileElement" label="{i18n>uploadFileLabel}">
+                                <f:fields>
+                                    <u:FileUploader
+                                        id="kbUploadFileUploader"
+                                        width="100%"
+                                        required="true"
+                                        maximumFileSize="10"
+                                        fileType="pdf,csv,tsv,eml,json,txt,md"
+                                        change="onFileSelected"
+                                        typeMissmatch="onFileTypeMissmatch"
+                                        fileSizeExceed="onFileSizeExceed" />
+                                </f:fields>
+                            </f:FormElement>
+
+                            <f:FormElement id="kbUploadHintElement">
+                                <f:fields>
+                                    <!-- Set in onOpenUpload: the text takes the size cap
+                                         and extension list as parameters. -->
+                                    <Text id="kbUploadHint" />
+                                </f:fields>
+                            </f:FormElement>
+
+                            <f:FormElement id="kbUploadCategoryElement" label="{i18n>uploadCategoryLabel}">
+                                <f:fields>
+                                    <Select
+                                        id="kbUploadCategory"
+                                        width="100%"
+                                        required="true"
+                                        forceSelection="false"
+                                        change="onFieldChange"
+                                        items="{path: '/KnowledgeCategories', templateShareable: false}">
+                                        <core:Item id="kbUploadCategoryItem" key="{code}" text="{description}" />
+                                    </Select>
+                                </f:fields>
+                            </f:FormElement>
+
+                            <f:FormElement id="kbUploadTitleElement" label="{i18n>uploadTitleLabel}">
+                                <f:fields>
+                                    <Input
+                                        id="kbUploadTitle"
+                                        width="100%"
+                                        required="true"
+                                        maxLength="200"
+                                        liveChange="onFieldChange"
+                                        placeholder="{i18n>uploadTitlePlaceholder}" />
+                                </f:fields>
+                            </f:FormElement>
+
+                            <f:FormElement id="kbUploadSourceRefElement" label="{i18n>uploadSourceRefLabel}">
+                                <f:fields>
+                                    <Input
+                                        id="kbUploadSourceRef"
+                                        width="100%"
+                                        maxLength="255"
+                                        placeholder="{i18n>uploadSourceRefPlaceholder}" />
+                                </f:fields>
+                            </f:FormElement>
+                        </f:formElements>
+                    </f:FormContainer>
+                </f:formContainers>
+            </f:Form>
+        </content>
+        <beginButton>
+            <Button
+                id="kbUploadConfirmBtn"
+                text="{i18n>uploadConfirmButton}"
+                type="Emphasized"
+                press="onConfirmUpload" />
+        </beginButton>
+        <endButton>
+            <Button id="kbUploadCancelBtn" text="{i18n>cancelButton}" press="onCancel" />
+        </endButton>
+    </Dialog>
+</core:FragmentDefinition>

@@ -1055,33 +1055,91 @@ Content-Type: application/json
 
 
 ###############################################################################
-# KnowledgeService  /api/knowledge
+# KnowledgeService  /api/knowledge   (Knowledge Base app: app/document-manager)
+#
+# Reads and retrieval are open to any authenticated user; every write is
+# KnowledgeCurator-only. KnowledgeDocuments is draft-enabled, so the active
+# instance is addressed as KnowledgeDocuments(ID=<id>,IsActiveEntity=true).
+# Saving changed title/content re-embeds the document; indexStatus says whether
+# it is searchable (PENDING / INDEXED / FAILED). See document-manager.md.
 ###############################################################################
 
-### List curated knowledge documents (reads are open)
-GET {{host}}/api/knowledge/KnowledgeDocuments?$select=ID,category,title,sourceRef
-{{curator}}
+### List curated knowledge documents with their search-index status
+GET {{host}}/api/knowledge/KnowledgeDocuments?$select=ID,category,title,sourceRef,indexStatus,indexCriticality&$top=5
+{{requester}}
+
+### Category value help (same list the server validates against)
+GET {{host}}/api/knowledge/KnowledgeCategories
+{{requester}}
 
 ### List by category (function)
 GET {{host}}/api/knowledge/listByCategory(category='MaterialGroupCatalog')
-{{curator}}
+{{requester}}
+
+### Guard: unknown category -> expect 400
+GET {{host}}/api/knowledge/listByCategory(category='Nope')
+{{requester}}
 
 ### (Re)index the corpus — embeds documents so RAG search works.
-# NOTE: srv/server.js also auto-runs reindex({onlyMissing:true}) on startup, so a
-# fresh DB self-heals its embeddings without this call. Use this to force a full
-# re-embed (e.g. after changing the embed model / dimensions, or after expanding the
-# seed corpus). The corpus now ships from db/data/ (so it reaches HANA, not just the
-# local sqlite dev DB) and holds 48 KnowledgeDocuments: MaterialGroupCatalog covering
-# all 15 material groups, CommodityTaxonomy over the 18 UNSPSC codes, 11 SupplierProfile,
-# 5 Policy, 4 Guideline (used by project-drafting) and 5 PastProject — so lab, office,
-# IT, facilities, services and safety items each ground to a distinct group + commodity.
+# srv/server.js also auto-runs reindex({onlyMissing:true}) on startup, so a fresh
+# DB self-heals. Use onlyMissing=false to force a full re-embed (e.g. after
+# changing the embed model / dimensions). Continue-on-failure: `failed` counts
+# documents left FAILED (each with its indexError). The corpus ships from
+# db/data/ (48 KnowledgeDocuments across the six categories).
 POST {{host}}/api/knowledge/reindex
 {{curator}}
 Content-Type: application/json
 
 { "onlyMissing": false }
 
-### Index a new curated document
+### Guard: a non-curator cannot reindex -> expect 403
+POST {{host}}/api/knowledge/reindex
+{{requester}}
+Content-Type: application/json
+
+{ "onlyMissing": true }
+
+### Retrieval test: what RAG would ground on (one embedding, no LLM)
+GET {{host}}/api/knowledge/searchKnowledge(query='inverted%20microscope',category=null,topK=3,minScore=null)
+{{requester}}
+
+### Retrieval test within one category, explicit relevance floor
+GET {{host}}/api/knowledge/searchKnowledge(query='safety%20goggles',category='MaterialGroupCatalog',topK=5,minScore=0)
+{{requester}}
+
+### Guard: empty query -> expect 400
+GET {{host}}/api/knowledge/searchKnowledge(query='',category=null,topK=5,minScore=null)
+{{requester}}
+
+### Guard: topK out of range -> expect 400
+GET {{host}}/api/knowledge/searchKnowledge(query='gloves',category=null,topK=99,minScore=null)
+{{requester}}
+
+### Grounded answer from the corpus (citations restricted to retrieved docs)
+# Under AI_PROVIDER=mock the answer is a placeholder and answered=false; with
+# openai this answers "three competitive quotes" citing POL-001.
+POST {{host}}/api/knowledge/askKnowledge
+{{requester}}
+Content-Type: application/json
+
+{ "question": "How many quotes do I need for a purchase of 20,000 EUR?", "topK": 5 }
+
+### Guard: empty question -> expect 400
+POST {{host}}/api/knowledge/askKnowledge
+{{requester}}
+Content-Type: application/json
+
+{ "question": "   " }
+
+### Guard: unknown category on ask -> expect 400
+POST {{host}}/api/knowledge/askKnowledge
+{{requester}}
+Content-Type: application/json
+
+{ "question": "gloves", "category": "Nope" }
+
+### Index a new curated text document (embedded immediately)
+# @name kbIndexed
 POST {{host}}/api/knowledge/indexDocument
 {{curator}}
 Content-Type: application/json
@@ -1093,9 +1151,210 @@ Content-Type: application/json
   "sourceRef": "SMOKE-TEST-001"
 }
 
+### Capture the indexed document id
+@kbIndexedId = {{kbIndexed.response.body.ID}}
+
 ### Guard: a non-curator cannot index -> expect 403
 POST {{host}}/api/knowledge/indexDocument
 {{requester}}
 Content-Type: application/json
 
 { "category": "Guideline", "title": "nope", "content": "x", "sourceRef": "X" }
+
+### Guard: indexDocument with an unknown category -> expect 400
+POST {{host}}/api/knowledge/indexDocument
+{{curator}}
+Content-Type: application/json
+
+{ "category": "Nope", "title": "x", "content": "y" }
+
+### Re-embed one document (Object Page "Reindex" button)
+POST {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbIndexedId}},IsActiveEntity=true)/KnowledgeService.reindexDocument
+{{curator}}
+Content-Type: application/json
+
+{}
+
+### Guard: a non-curator cannot reindex a document -> expect 403
+POST {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbIndexedId}},IsActiveEntity=true)/KnowledgeService.reindexDocument
+{{requester}}
+Content-Type: application/json
+
+{}
+
+### Direct PATCH of a non-embedded field (no re-embed)
+PATCH {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbIndexedId}},IsActiveEntity=true)
+{{curator}}
+Content-Type: application/json
+
+{ "sourceRef": "SMOKE-TEST-001b" }
+
+### Guard: a non-curator cannot edit the corpus -> expect 403
+PATCH {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbIndexedId}},IsActiveEntity=true)
+{{requester}}
+Content-Type: application/json
+
+{ "title": "hijacked" }
+
+### Guard: blanking the content is refused -> expect 400
+PATCH {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbIndexedId}},IsActiveEntity=true)
+{{curator}}
+Content-Type: application/json
+
+{ "content": "" }
+
+### Edit via draft (what the Object Page does): EDIT -> PATCH -> activate
+POST {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbIndexedId}},IsActiveEntity=true)/KnowledgeService.draftEdit
+{{curator}}
+Content-Type: application/json
+
+{ "PreserveChanges": true }
+
+### Change the embedded content inside the draft
+PATCH {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbIndexedId}},IsActiveEntity=false)
+{{curator}}
+Content-Type: application/json
+
+{ "content": "Prefer framework suppliers for lab consumables under EUR 10000." }
+
+### Save the draft -> the document is re-embedded (indexStatus INDEXED, new indexedAt)
+POST {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbIndexedId}},IsActiveEntity=false)/KnowledgeService.draftActivate
+{{curator}}
+Content-Type: application/json
+
+{}
+
+### Read back the index status after the edit
+GET {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbIndexedId}},IsActiveEntity=true)?$select=title,content,indexStatus,indexedAt,indexError
+{{requester}}
+
+### Create a new document via draft (Object Page "Create")
+# @name kbDraft
+POST {{host}}/api/knowledge/KnowledgeDocuments
+{{curator}}
+Content-Type: application/json
+
+{ "category": "Policy", "title": "HTTP draft policy", "content": "Single-source awards above EUR 50000 need a written justification.", "sourceRef": "SMOKE-DRAFT-001" }
+
+### Capture the draft id
+@kbDraftId = {{kbDraft.response.body.ID}}
+
+### Activate the new draft -> embedded on save
+POST {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbDraftId}},IsActiveEntity=false)/KnowledgeService.draftActivate
+{{curator}}
+Content-Type: application/json
+
+{}
+
+### Guard: a non-curator cannot create a draft -> expect 403
+POST {{host}}/api/knowledge/KnowledgeDocuments
+{{requester}}
+Content-Type: application/json
+
+{ "category": "Policy", "title": "nope", "content": "x" }
+
+### A draft with an unknown category ...
+# @name kbBadDraft
+POST {{host}}/api/knowledge/KnowledgeDocuments
+{{curator}}
+Content-Type: application/json
+
+{ "category": "Nope", "title": "bad category", "content": "x" }
+
+### Capture the bad draft id
+@kbBadDraftId = {{kbBadDraft.response.body.ID}}
+
+### Guard: ... cannot be saved -> expect 400
+POST {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbBadDraftId}},IsActiveEntity=false)/KnowledgeService.draftActivate
+{{curator}}
+Content-Type: application/json
+
+{}
+
+### Discard the bad draft
+DELETE {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbBadDraftId}},IsActiveEntity=false)
+{{curator}}
+
+### File upload, step 1: create the document for a file
+# @name kbFile
+POST {{host}}/api/knowledge/createFromFile
+{{curator}}
+Content-Type: application/json
+
+{ "category": "PastProject", "title": "HTTP sample order", "sourceRef": "SMOKE-FILE-001", "fileName": "sample.pdf", "fileSize": 944 }
+
+### Capture the file document id
+@kbFileId = {{kbFile.response.body.ID}}
+
+### File upload, step 2: PUT the bytes -> parsed into content and embedded -> expect 204
+PUT {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbFileId}},IsActiveEntity=true)/contentBinary
+{{curator}}
+Content-Type: application/pdf
+
+< ./data/sample.pdf
+
+### Read back: content holds the PDF text, indexStatus INDEXED
+GET {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbFileId}},IsActiveEntity=true)?$select=title,fileName,mediaType,content,indexStatus,indexError
+{{requester}}
+
+### Download the original file (Content-Disposition: attachment)
+GET {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbFileId}},IsActiveEntity=true)/contentBinary
+{{requester}}
+
+### Guard: a script-capable Content-Type is refused -> expect 415
+PUT {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbFileId}},IsActiveEntity=true)/contentBinary
+{{curator}}
+Content-Type: text/html
+
+not a knowledge file (a body starting with "<" would be read as a file path)
+
+### Guard: a non-curator cannot upload -> expect 403
+PUT {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbFileId}},IsActiveEntity=true)/contentBinary
+{{requester}}
+Content-Type: application/pdf
+
+< ./data/sample.pdf
+
+### Guard: files go through createFromFile, not onto a text document -> expect 409
+PUT {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbIndexedId}},IsActiveEntity=true)/contentBinary
+{{curator}}
+Content-Type: text/plain
+
+plain text
+
+### Guard: unsupported file type (binary Excel) -> expect 415
+POST {{host}}/api/knowledge/createFromFile
+{{curator}}
+Content-Type: application/json
+
+{ "category": "Policy", "fileName": "catalog.xlsx" }
+
+### Guard: oversize declared file -> expect 413
+POST {{host}}/api/knowledge/createFromFile
+{{curator}}
+Content-Type: application/json
+
+{ "category": "Policy", "fileName": "huge.pdf", "fileSize": 20000000 }
+
+### Guard: a non-curator cannot create a file document -> expect 403
+POST {{host}}/api/knowledge/createFromFile
+{{requester}}
+Content-Type: application/json
+
+{ "category": "Policy", "fileName": "x.pdf" }
+
+### Guard: a non-curator cannot delete -> expect 403
+DELETE {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbFileId}},IsActiveEntity=true)
+{{requester}}
+
+### Clean up: delete the file document this run created
+DELETE {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbFileId}},IsActiveEntity=true)
+{{curator}}
+
+### Clean up: delete the draft-created document
+DELETE {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbDraftId}},IsActiveEntity=true)
+{{curator}}
+
+### Clean up: delete the indexed text document
+DELETE {{host}}/api/knowledge/KnowledgeDocuments(ID={{kbIndexedId}},IsActiveEntity=true)
+{{curator}}

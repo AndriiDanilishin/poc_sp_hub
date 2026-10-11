@@ -213,8 +213,27 @@ entity KnowledgeDocument : cuid, managed {
     content   : LargeString;
     // Must match AI_EMBED_DIMENSIONS / the embed model's native size (llm-client.js):
     // text-embedding-3-small → 1536, -large → 3072. Keep these three in sync.
-    embedding : Vector(3072);
-    sourceRef : String(255);
+    embedding     : Vector(3072);
+    sourceRef     : String(255);
+
+    // Optional original file a curator uploaded (PDF, CSV, email, text). The
+    // parsed text lands in `content`, which is what gets embedded; the bytes are
+    // kept only so the source can be downloaded again. Uploaded as an OData media
+    // stream (see @Core.MediaType on the KnowledgeService projection) for the same
+    // reason as SourceDocument.contentBinary: no base64 inflation, and CAP's JSON
+    // body limit (100 KB) cannot carry real files through an action payload.
+    fileName      : String(255);
+    mediaType     : String(100);
+    contentBinary : LargeBinary;
+
+    // Whether this document is currently searchable by RAG. Maintained by
+    // srv/ai/embedder.js: INDEXED once a vector matches the current content,
+    // PENDING after any change to the embedded text (the vector is cleared at the
+    // same time, so a stale embedding can never answer for edited content), FAILED
+    // with `indexError` when parsing or embedding did not succeed.
+    indexStatus   : String(10) default 'PENDING'; // PENDING, INDEXED, FAILED
+    indexedAt     : Timestamp;
+    indexError    : String(1000);
 }
 
 // -----------------------------------------------------------------------------
