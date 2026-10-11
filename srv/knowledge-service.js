@@ -320,6 +320,11 @@ module.exports = class KnowledgeService extends cds.ApplicationService {
         }
       }
 
+      // New file → new text: drop the previous file's vector before anything else,
+      // as the edit path does. A failed embed below keeps a vector only when the
+      // text is unchanged (embedder.failureUpdate), so without this a re-upload
+      // during a provider outage would leave the old file answering for the new.
+      await embedder.markPending(id);
       await UPDATE(KnowledgeDocument).set({ content }).where({ ID: id });
       let indexError = parseError;
       if (parseError) {

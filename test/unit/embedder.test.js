@@ -53,3 +53,30 @@ test('defaultMinScore is 0 under mock (random vectors) and positive for real pro
   if (prevOverride === undefined) delete process.env.AI_RAG_MIN_SCORE;
   else process.env.AI_RAG_MIN_SCORE = prevOverride;
 });
+
+test('failureUpdate keeps a still-valid vector when the provider fails', () => {
+  const update = embedder.failureUpdate({
+    hasVector: true,
+    error: new Error('429 Too Many Requests'),
+  });
+  assert.equal('embedding' in update, false, 'vector must not be cleared');
+  assert.equal('indexStatus' in update, false, 'stays INDEXED');
+  assert.equal('indexedAt' in update, false);
+  assert.match(update.indexError, /previous embedding kept.*429/);
+});
+
+test('failureUpdate marks FAILED when there was no vector to keep', () => {
+  const update = embedder.failureUpdate({ hasVector: false, error: new Error('401') });
+  assert.equal(update.indexStatus, 'FAILED');
+  assert.equal(update.embedding, null);
+  assert.equal(update.indexError, '401');
+});
+
+test('failureUpdate clears the vector when the text itself is unembeddable', () => {
+  const update = embedder.failureUpdate({
+    hasVector: true,
+    error: new embedder.UnembeddableTextError('document has no content to embed'),
+  });
+  assert.equal(update.indexStatus, 'FAILED');
+  assert.equal(update.embedding, null);
+});

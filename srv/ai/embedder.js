@@ -70,8 +70,40 @@ function embeddableText(doc) {
   return [doc.title, doc.content].filter(Boolean).join('\n');
 }
 
-// Record a failed (re)index. The vector is cleared on purpose: a failure after the
-// content changed must not leave the previous embedding answering for new text.
+// Invariant: a stored vector stays exactly as long as the text it was computed from.
+// Callers that CHANGE the embedded text clear it first (markPending); callers that
+// know the text cannot be embedded at all clear it via markFailed. A failed embed
+// call on its own (provider outage, 429, 5xx, bad key) says nothing about the
+// text, so it must not delete a vector that still matches it — otherwise a Reindex
+// during an outage would empty retrieval for the whole corpus.
+
+// Errors that mean the document's own text is unusable, so any old vector is stale.
+class UnembeddableTextError extends Error {}
+
+/**
+ * What to write after a failed embed attempt. Pure — exported for testing.
+ * @param {{hasVector: boolean, error: Error}} args
+ * @returns {object} the column values to set on the KnowledgeDocument row
+ */
+function failureUpdate({ hasVector, error }) {
+  const message = String(error?.message || 'indexing failed');
+  if (hasVector && !(error instanceof UnembeddableTextError)) {
+    // Still searchable with the embedding of the unchanged text: keep vector,
+    // status and indexedAt, and surface the failure in indexError.
+    return {
+      indexError: `Last reindex failed (previous embedding kept): ${message}`.slice(0, 1000),
+    };
+  }
+  return {
+    embedding: null,
+    indexStatus: 'FAILED',
+    indexedAt: null,
+    indexError: message.slice(0, 1000),
+  };
+}
+
+// Record that a document's text cannot be indexed (unparseable upload, no content).
+// Clears the vector: the text it was computed from is gone or invalid.
 async function markFailed(id, message) {
   const { KnowledgeDocument } = cds.entities('sourcing');
   await UPDATE(KnowledgeDocument)
@@ -92,13 +124,15 @@ async function markPending(id) {
     .where({ ID: id });
 }
 
-// Embed one row and store the vector with its status. Throws after recording FAILED.
+// Embed one row and store the vector with its status. On failure, records it per
+// failureUpdate (keeps a still-valid vector) and rethrows. `doc` must carry
+// `embedding` so the failure path knows whether a vector exists.
 async function embedRow(doc) {
   const { KnowledgeDocument } = cds.entities('sourcing');
   const text = embeddableText(doc).trim();
   try {
     if (!doc.content || !String(doc.content).trim()) {
-      throw new Error('document has no content to embed');
+      throw new UnembeddableTextError('document has no content to embed');
     }
     const vector = await embed(text);
     await UPDATE(KnowledgeDocument)
@@ -106,18 +140,23 @@ async function embedRow(doc) {
       .where({ ID: doc.ID });
     return vector.length;
   } catch (err) {
-    await markFailed(doc.ID, err.message);
+    const hasVector = Boolean(toVector(doc.embedding));
+    await UPDATE(KnowledgeDocument)
+      .set(failureUpdate({ hasVector, error: err }))
+      .where({
+        ID: doc.ID,
+      });
     throw err;
   }
 }
 
 // Compute + store the embedding for a single KnowledgeDocument. On failure the
-// document is left FAILED (vector cleared, indexError set) and the error rethrown.
+// error is recorded on the row (see failureUpdate) and rethrown.
 async function indexDocument(id) {
   const { KnowledgeDocument } = cds.entities('sourcing');
   const doc = await SELECT.one
     .from(KnowledgeDocument)
-    .columns('ID', 'title', 'content')
+    .columns('ID', 'title', 'content', 'embedding')
     .where({ ID: id });
   if (!doc) throw new Error(`KnowledgeDocument ${id} not found`);
   const dimensions = await embedRow(doc);
@@ -196,6 +235,8 @@ module.exports = {
   indexDocument,
   markPending,
   markFailed,
+  failureUpdate,
+  UnembeddableTextError,
   reindex,
   search,
   cosine,
