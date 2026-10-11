@@ -1,0 +1,109 @@
+<core:FragmentDefinition
+    xmlns:core="sap.ui.core"
+    xmlns="sap.m">
+    <!-- Retrieval test + grounded Q&A over the whole corpus. "Search" shows what
+         RAG would ground on (scores, no LLM call); "Ask" adds an answer that may
+         only cite those documents. State lives in the dialog-local "ask" model.
+         Stable ids throughout (flexEnabled). -->
+    <Dialog
+        id="kbAskDialog"
+        core:require="{ Similarity: 'poc/sp/hub/documentmanager/ext/lib/Similarity' }"
+        title="{i18n>askDialogTitle}"
+        contentWidth="44rem"
+        contentHeight="36rem"
+        resizable="true"
+        draggable="true">
+        <content>
+            <VBox id="kbAskBox" class="sapUiSmallMargin">
+                <Label id="kbAskQuestionLabel" text="{i18n>askQuestionLabel}" labelFor="kbAskQuestion" required="true" />
+                <TextArea
+                    id="kbAskQuestion"
+                    width="100%"
+                    rows="3"
+                    maxLength="2000"
+                    value="{ask>/question}"
+                    valueLiveUpdate="true"
+                    placeholder="{i18n>askQuestionPlaceholder}" />
+
+                <HBox id="kbAskOptions" alignItems="End" wrap="Wrap" class="sapUiTinyMarginTop">
+                    <VBox id="kbAskCategoryBox" class="sapUiSmallMarginEnd">
+                        <Label id="kbAskCategoryLabel" text="{i18n>askCategoryLabel}" labelFor="kbAskCategory" />
+                        <Select
+                            id="kbAskCategory"
+                            width="16rem"
+                            selectedKey="{ask>/category}"
+                            items="{path: 'ask>/categories', templateShareable: false}">
+                            <core:Item id="kbAskCategoryItem" key="{ask>code}" text="{ask>description}" />
+                        </Select>
+                    </VBox>
+                    <VBox id="kbAskTopKBox">
+                        <Label id="kbAskTopKLabel" text="{i18n>askTopKLabel}" labelFor="kbAskTopK" />
+                        <StepInput id="kbAskTopK" min="1" max="20" width="8rem" value="{ask>/topK}" />
+                    </VBox>
+                </HBox>
+
+                <!-- Answer (Ask only) -->
+                <VBox id="kbAskAnswerBox" visible="{= ${ask>/mode} === 'ask'}" class="sapUiSmallMarginTop">
+                    <HBox id="kbAskAnswerHeader" alignItems="Center">
+                        <Title id="kbAskAnswerTitle" text="{i18n>askAnswerTitle}" level="H3" class="sapUiSmallMarginEnd" />
+                        <ObjectStatus
+                            id="kbAskAnswerState"
+                            text="{= ${ask>/answered} ? ${i18n>askGrounded} : ${i18n>askNotAnswered}}"
+                            state="{= ${ask>/answered} ? 'Success' : 'Warning'}"
+                            icon="{= ${ask>/answered} ? 'sap-icon://accept' : 'sap-icon://message-warning'}" />
+                    </HBox>
+                    <Text id="kbAskAnswer" text="{ask>/answer}" wrapping="true" class="sapUiTinyMarginTop" />
+                    <List
+                        id="kbAskCitations"
+                        headerText="{i18n>askCitationsTitle}"
+                        visible="{= ${ask>/citations}.length > 0}"
+                        items="{path: 'ask>/citations', templateShareable: false}"
+                        class="sapUiTinyMarginTop">
+                        <StandardListItem
+                            id="kbAskCitationItem"
+                            title="{ask>title}"
+                            description="{ask>sourceRef}"
+                            icon="sap-icon://course-book"
+                            type="Navigation"
+                            press="onOpenHit" />
+                    </List>
+                </VBox>
+
+                <!-- Retrieved documents (Search and Ask) -->
+                <List
+                    id="kbAskHits"
+                    headerText="{= ${ask>/mode} === 'ask' ? ${i18n>askRetrievedTitle} : ${i18n>askHitsTitle}}"
+                    visible="{= ${ask>/mode} !== '' }"
+                    noDataText="{i18n>askNoHits}"
+                    items="{path: 'ask>/hits', templateShareable: false}"
+                    class="sapUiSmallMarginTop">
+                    <StandardListItem
+                        id="kbAskHitItem"
+                        title="{ask>title}"
+                        description="{parts: ['ask>category', 'ask>sourceRef', 'ask>excerpt'], formatter: 'Similarity.hitDescription'}"
+                        info="{path: 'ask>score', formatter: 'Similarity.percent'}"
+                        infoState="{path: 'ask>score', formatter: 'Similarity.relevanceState'}"
+                        wrapping="true"
+                        type="Navigation"
+                        press="onOpenHit" />
+                </List>
+            </VBox>
+        </content>
+        <buttons>
+            <Button
+                id="kbAskSearchBtn"
+                text="{i18n>askSearchButton}"
+                icon="sap-icon://search"
+                enabled="{= ${ask>/question}.trim().length > 0 }"
+                press="onSearch" />
+            <Button
+                id="kbAskAskBtn"
+                text="{i18n>askAskButton}"
+                type="Emphasized"
+                icon="sap-icon://ai"
+                enabled="{= ${ask>/question}.trim().length > 0 }"
+                press="onAsk" />
+            <Button id="kbAskCloseBtn" text="{i18n>closeButton}" press="onClose" />
+        </buttons>
+    </Dialog>
+</core:FragmentDefinition>

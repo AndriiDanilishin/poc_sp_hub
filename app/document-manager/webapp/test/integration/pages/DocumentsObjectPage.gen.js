@@ -33,8 +33,8 @@ sap.ui.define(['sap/fe/test/ObjectPage', 'sap/ui/test/actions/Press'], function(
     return new ObjectPage(
         {
             appId: 'poc.sp.hub.documentmanager',
-            componentId: 'DocumentsObjectPage',
-            contextPath: '/Documents'
+            componentId: 'KnowledgeDocumentsObjectPage',
+            contextPath: '/KnowledgeDocuments'
         },
         CustomPageDefinitions
     );

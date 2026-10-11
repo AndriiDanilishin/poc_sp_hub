@@ -70,29 +70,86 @@ function embeddableText(doc) {
   return [doc.title, doc.content].filter(Boolean).join('\n');
 }
 
-// Compute + store the embedding for a single KnowledgeDocument.
-async function indexDocument(id) {
+// Record a failed (re)index. The vector is cleared on purpose: a failure after the
+// content changed must not leave the previous embedding answering for new text.
+async function markFailed(id, message) {
   const { KnowledgeDocument } = cds.entities('sourcing');
-  const doc = await SELECT.one.from(KnowledgeDocument).where({ ID: id });
-  if (!doc) throw new Error(`KnowledgeDocument ${id} not found`);
-  const vector = await embed(embeddableText(doc));
-  await UPDATE(KnowledgeDocument).set({ embedding: vector }).where({ ID: id });
-  return { id, dimensions: vector.length };
+  await UPDATE(KnowledgeDocument)
+    .set({
+      embedding: null,
+      indexStatus: 'FAILED',
+      indexedAt: null,
+      indexError: String(message || 'indexing failed').slice(0, 1000),
+    })
+    .where({ ID: id });
 }
 
-// (Re)embed the corpus. onlyMissing skips documents that already have a vector.
+// Mark a document as needing a fresh embedding (its embedded text changed).
+async function markPending(id) {
+  const { KnowledgeDocument } = cds.entities('sourcing');
+  await UPDATE(KnowledgeDocument)
+    .set({ embedding: null, indexStatus: 'PENDING', indexedAt: null, indexError: null })
+    .where({ ID: id });
+}
+
+// Embed one row and store the vector with its status. Throws after recording FAILED.
+async function embedRow(doc) {
+  const { KnowledgeDocument } = cds.entities('sourcing');
+  const text = embeddableText(doc).trim();
+  try {
+    if (!doc.content || !String(doc.content).trim()) {
+      throw new Error('document has no content to embed');
+    }
+    const vector = await embed(text);
+    await UPDATE(KnowledgeDocument)
+      .set({ embedding: vector, indexStatus: 'INDEXED', indexedAt: new Date(), indexError: null })
+      .where({ ID: doc.ID });
+    return vector.length;
+  } catch (err) {
+    await markFailed(doc.ID, err.message);
+    throw err;
+  }
+}
+
+// Compute + store the embedding for a single KnowledgeDocument. On failure the
+// document is left FAILED (vector cleared, indexError set) and the error rethrown.
+async function indexDocument(id) {
+  const { KnowledgeDocument } = cds.entities('sourcing');
+  const doc = await SELECT.one
+    .from(KnowledgeDocument)
+    .columns('ID', 'title', 'content')
+    .where({ ID: id });
+  if (!doc) throw new Error(`KnowledgeDocument ${id} not found`);
+  const dimensions = await embedRow(doc);
+  return { id, dimensions };
+}
+
+// (Re)embed the corpus. onlyMissing skips documents that are already INDEXED with a
+// vector. Continue-on-failure: one bad document (empty content, a transient provider
+// error) is recorded as FAILED on its row and no longer aborts the whole pass.
 async function reindex({ onlyMissing = false } = {}) {
   const { KnowledgeDocument } = cds.entities('sourcing');
-  const rows = await SELECT.from(KnowledgeDocument).columns('ID', 'title', 'content', 'embedding');
+  const rows = await SELECT.from(KnowledgeDocument).columns(
+    'ID',
+    'title',
+    'content',
+    'embedding',
+    'indexStatus',
+  );
   let indexed = 0;
+  let failed = 0;
   for (const doc of rows) {
-    if (onlyMissing && toVector(doc.embedding)) continue;
-    const vector = await embed(embeddableText(doc));
-    await UPDATE(KnowledgeDocument).set({ embedding: vector }).where({ ID: doc.ID });
-    indexed++;
+    if (onlyMissing && doc.indexStatus === 'INDEXED' && toVector(doc.embedding)) continue;
+    try {
+      await embedRow(doc);
+      indexed++;
+    } catch (err) {
+      failed++;
+      LOG.warn(`reindex: ${doc.ID} failed: ${err.message}`);
+    }
   }
-  LOG.info(`reindexed ${indexed}/${rows.length} knowledge document(s)`);
-  return { total: rows.length, indexed };
+  LOG.info(`reindexed ${indexed}/${rows.length} knowledge document(s), ${failed} failed`);
+  return { total: rows.length, indexed, failed };
 }
 
 // Pure ranking helper (exported for testing): score candidates against a query vector.
@@ -137,6 +194,8 @@ async function search(queryText, { category, topK = 5, minScore } = {}) {
 module.exports = {
   embed,
   indexDocument,
+  markPending,
+  markFailed,
   reindex,
   search,
   cosine,

@@ -26,8 +26,8 @@ sap.ui.define(['sap/fe/test/ListReport'], function(ListReport) {
     return new ListReport(
         {
             appId: 'poc.sp.hub.documentmanager',
-            componentId: 'DocumentsList',
-            contextPath: '/Documents'
+            componentId: 'KnowledgeDocumentsList',
+            contextPath: '/KnowledgeDocuments'
         },
         CustomPageDefinitions
     );

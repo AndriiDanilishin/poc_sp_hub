@@ -17,7 +17,7 @@
     },
     "dataSources": {
       "mainService": {
-        "uri": "api/documents/",
+        "uri": "api/knowledge/",
         "type": "OData",
         "settings": {
           "annotations": [],
@@ -28,11 +28,11 @@
     "crossNavigation": {
       "inbounds": {
         "documentmanager-manage": {
-          "semanticObject": "Document",
+          "semanticObject": "KnowledgeDocument",
           "action": "manage",
           "title": "{{appTitle}}",
           "subTitle": "{{appDescription}}",
-          "icon": "sap-icon://documents",
+          "icon": "sap-icon://course-book",
           "signature": {
             "parameters": {},
             "additionalParameters": "allowed"
@@ -69,7 +69,9 @@
         "sap.m": {},
         "sap.ui.core": {},
         "sap.fe.templates": {},
-        "sap.f": {}
+        "sap.f": {},
+        "sap.ui.layout": {},
+        "sap.ui.unified": {}
       }
     },
     "contentDensities": {
@@ -111,40 +113,62 @@
       "routes": [
         {
           "pattern": ":?query:",
-          "name": "DocumentsList",
+          "name": "KnowledgeDocumentsList",
           "target": [
-            "DocumentsList"
+            "KnowledgeDocumentsList"
           ]
         },
         {
-          "pattern": "Documents({key}):?query:",
-          "name": "DocumentsObjectPage",
+          "pattern": "KnowledgeDocuments({key}):?query:",
+          "name": "KnowledgeDocumentsObjectPage",
           "target": [
-            "DocumentsList",
-            "DocumentsObjectPage"
+            "KnowledgeDocumentsList",
+            "KnowledgeDocumentsObjectPage"
           ]
         }
       ],
       "targets": {
-        "DocumentsList": {
+        "KnowledgeDocumentsList": {
           "type": "Component",
-          "id": "DocumentsList",
+          "id": "KnowledgeDocumentsList",
           "name": "sap.fe.templates.ListReport",
           "options": {
             "settings": {
-              "contextPath": "/Documents",
+              "contextPath": "/KnowledgeDocuments",
               "variantManagement": "Page",
+              "initialLoad": "Enabled",
               "navigation": {
-                "Documents": {
+                "KnowledgeDocuments": {
                   "detail": {
-                    "route": "DocumentsObjectPage"
+                    "route": "KnowledgeDocumentsObjectPage"
                   }
                 }
               },
               "controlConfiguration": {
                 "@com.sap.vocabularies.UI.v1.LineItem": {
                   "tableSettings": {
-                    "type": "ResponsiveTable"
+                    "type": "ResponsiveTable",
+                    "selectionMode": "Multi"
+                  },
+                  "actions": {
+                    "uploadFile": {
+                      "press": "poc.sp.hub.documentmanager.ext.fragment.UploadDialog.onOpenUpload",
+                      "visible": "{= ${/CurrentUser/readOnly} === false }",
+                      "enabled": true,
+                      "text": "{i18n>uploadFileAction}"
+                    },
+                    "askKnowledge": {
+                      "press": "poc.sp.hub.documentmanager.ext.fragment.AskDialog.onOpenAsk",
+                      "visible": true,
+                      "enabled": true,
+                      "text": "{i18n>askAction}"
+                    },
+                    "reindexMissing": {
+                      "press": "poc.sp.hub.documentmanager.ext.fragment.KnowledgeActions.onReindexMissing",
+                      "visible": "{= ${/CurrentUser/readOnly} === false }",
+                      "enabled": true,
+                      "text": "{i18n>reindexMissingAction}"
+                    }
                   }
                 }
               }
@@ -153,24 +177,24 @@
           "controlAggregation": "beginColumnPages",
           "contextPattern": ""
         },
-        "DocumentsObjectPage": {
+        "KnowledgeDocumentsObjectPage": {
           "type": "Component",
-          "id": "DocumentsObjectPage",
+          "id": "KnowledgeDocumentsObjectPage",
           "name": "sap.fe.templates.ObjectPage",
           "options": {
             "settings": {
               "editableHeaderContent": false,
-              "contextPath": "/Documents",
+              "contextPath": "/KnowledgeDocuments",
               "content": {
                 "body": {
                   "sections": {
-                    "ChatSection": {
-                      "template": "poc.sp.hub.documentmanager.ext.fragment.ChatSection",
+                    "SimilarSection": {
+                      "template": "poc.sp.hub.documentmanager.ext.fragment.SimilarSection",
                       "position": {
                         "placement": "After",
-                        "anchor": "GeneratedFacet1"
+                        "anchor": "IndexingFacet"
                       },
-                      "title": "{i18n>chatSectionTitle}"
+                      "title": "{i18n>similarSectionTitle}"
                     }
                   }
                 }
@@ -178,7 +202,7 @@
             }
           },
           "controlAggregation": "midColumnPages",
-          "contextPattern": "/Documents({key})"
+          "contextPattern": "/KnowledgeDocuments({key})"
         }
       }
     },
